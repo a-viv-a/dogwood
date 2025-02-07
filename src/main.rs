@@ -1,13 +1,22 @@
+#![allow(clippy::unnecessary_wraps)]
+
 use std::io::{self, BufRead, Write};
 
-use lrlex::lrlex_mod;
-use lrpar::lrpar_mod;
+use cfgrammar::Span;
+use lrlex::{lrlex_mod, DefaultLexerTypes};
+use lrpar::{lrpar_mod, NonStreamingLexer};
 
+// Using `lrlex_mod!` brings the lexer for `dogwood.l` into scope. By default the module name will be
+// `dogwood_l` (i.e. the file name, minus any extensions, with a suffix of `_l`).
 lrlex_mod!("dogwood.l");
+// Using `lrpar_mod!` brings the parser for `dogwood.y` into scope. By default the module name will be
+// `dogwood_y` (i.e. the file name, minus any extensions, with a suffix of `_y`).
 lrpar_mod!("dogwood.y");
 
+use dogwood_y::Expr;
+
 fn main() {
-    // Get the `LexerDef` for the `calc` language.
+    // Get the `LexerDef` for the `dogwood` language.
     let lexerdef = dogwood_l::lexerdef();
     let stdin = io::stdin();
     loop {
@@ -18,20 +27,48 @@ fn main() {
                 if l.trim().is_empty() {
                     continue;
                 }
-                // Now we create a lexer with the `lexer` method with which
-                // we can lex an input.
+                // Now we create a lexer with the `lexer` method with which we can lex an input.
                 let lexer = lexerdef.lexer(l);
                 // Pass the lexer to the parser and lex and parse the input.
                 let (res, errs) = dogwood_y::parse(&lexer);
                 for e in errs {
                     println!("{}", e.pp(&lexer, &dogwood_y::token_epp));
                 }
-                match res {
-                    Some(Ok(r)) => println!("Result: {:?}", r),
-                    _ => eprintln!("Unable to evaluate expression."),
+                if let Some(Ok(r)) = res {
+                    match eval(&lexer, r) {
+                        Ok(i) => println!("Result: {}", i),
+                        Err((span, msg)) => {
+                            let ((line, col), _) = lexer.line_col(span);
+                            eprintln!(
+                                "Evaluation error at line {} column {}, '{}' {}.",
+                                line,
+                                col,
+                                lexer.span_str(span),
+                                msg
+                            )
+                        }
+                    }
                 }
             }
             _ => break,
         }
+    }
+}
+
+fn eval(
+    lexer: &dyn NonStreamingLexer<DefaultLexerTypes<u32>>,
+    e: Expr,
+) -> Result<u64, (Span, &'static str)> {
+    match e {
+        Expr::Add { span, lhs, rhs } => eval(lexer, *lhs)?
+            .checked_add(eval(lexer, *rhs)?)
+            .ok_or((span, "overflowed")),
+        Expr::Mul { span, lhs, rhs } => eval(lexer, *lhs)?
+            .checked_mul(eval(lexer, *rhs)?)
+            .ok_or((span, "overflowed")),
+        Expr::Number { span } => lexer
+            .span_str(span)
+            .parse::<u64>()
+            .map_err(|_| (span, "cannot be represented as a u64")),
     }
 }
