@@ -3,4 +3,15 @@ name = "dogwood"
 version = "0.1.0"
 edition = "2021"
 
+[[bin]]
+name = "dogwood"
+
+[build-dependencies]
+cfgrammar = "0.13.9"
+lrlex = "0.13.9"
+lrpar = "0.13.9"
+
 [dependencies]
+cfgrammar = "0.13.9"
+lrlex = "0.13.9"
+lrpar = "0.13.9"
