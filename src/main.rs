@@ -5,6 +5,7 @@ use std::io::{self, BufRead, Write};
 use cfgrammar::Span;
 use lrlex::{lrlex_mod, DefaultLexerTypes};
 use lrpar::{lrpar_mod, NonStreamingLexer};
+use miette::{miette, LabeledSpan, Result, Severity};
 
 // Using `lrlex_mod!` brings the lexer for `dogwood.l` into scope. By default the module name will be
 // `dogwood_l` (i.e. the file name, minus any extensions, with a suffix of `_l`).
@@ -37,15 +38,9 @@ fn main() {
                 if let Some(Ok(r)) = res {
                     match eval(&lexer, r) {
                         Ok(i) => println!("Result: {}", i),
-                        Err((span, msg)) => {
-                            let ((line, col), _) = lexer.line_col(span);
-                            eprintln!(
-                                "Evaluation error at line {} column {}, '{}' {}.",
-                                line,
-                                col,
-                                lexer.span_str(span),
-                                msg
-                            )
+                        Err(err) => {
+                            // let ((line, col), _) = lexer.line_col(span);
+                            eprintln!("{:?}", err.with_source_code(l.to_owned()))
                         }
                     }
                 }
@@ -55,20 +50,42 @@ fn main() {
     }
 }
 
-fn eval(
-    lexer: &dyn NonStreamingLexer<DefaultLexerTypes<u32>>,
-    e: Expr,
-) -> Result<u64, (Span, &'static str)> {
+macro_rules! lspan {
+    ($label:expr => $span:expr) => {{
+        let span = $span;
+        LabeledSpan::new_with_span(Some($label.to_string()), (span.start(), span.end()))
+    }};
+    ($label:expr =>e $span:expr) => {{}};
+}
+
+fn eval(lexer: &dyn NonStreamingLexer<DefaultLexerTypes<u32>>, e: Expr) -> Result<u64> {
     match e {
-        Expr::Add { span, lhs, rhs } => eval(lexer, *lhs)?
-            .checked_add(eval(lexer, *rhs)?)
-            .ok_or((span, "overflowed")),
-        Expr::Mul { span, lhs, rhs } => eval(lexer, *lhs)?
-            .checked_mul(eval(lexer, *rhs)?)
-            .ok_or((span, "overflowed")),
+        Expr::Add { span, lhs, rhs } => {
+            let lhs_span = *lhs.span();
+            eval(lexer, *lhs)?
+                .checked_add(eval(lexer, *rhs)?)
+                .ok_or(miette!(
+                    labels = vec![lspan!("here" => span), lspan!("lhs" => lhs_span)],
+                    "evaluation of add overflowed"
+                ))
+        }
+        Expr::Mul { span, lhs, rhs } => {
+            eval(lexer, *lhs)?
+                .checked_mul(eval(lexer, *rhs)?)
+                .ok_or(miette!(
+                    labels = vec![lspan!("here" => span)],
+                    "evaluation of add overflowed"
+                ))
+        }
         Expr::Number { span } => lexer
             .span_str(span)
             .parse::<u64>()
-            .map_err(|_| (span, "cannot be represented as a u64")),
+            // .map_err(|_| (span, "cannot be represented as a u64")),
+            .map_err(|_| {
+                miette!(
+                    labels = vec![lspan!("this number" => span)],
+                    "cannot be represented as a u64"
+                )
+            }),
     }
 }

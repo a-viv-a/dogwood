@@ -18,6 +18,7 @@ Factor -> Result<Expr, ()>:
 %%
 
 use cfgrammar::Span;
+use std::ops::Deref;
 
 #[derive(Debug)]
 pub enum Expr {
@@ -34,4 +35,14 @@ pub enum Expr {
     Number {
         span: Span
     }
+}
+
+impl Expr {
+	pub fn span(&self) -> &Span {
+		match self {
+			Expr::Add {span, lhs, rhs} => span,
+			Expr::Mul {span, lhs, rhs} => span,
+			Expr::Number {span} => span,
+		}
+	}
 }
