@@ -14,7 +14,7 @@ lrlex_mod!("dogwood.l");
 // `dogwood_y` (i.e. the file name, minus any extensions, with a suffix of `_y`).
 lrpar_mod!("dogwood.y");
 
-use dogwood_y::Expr;
+use dogwood_y::{Expr, Op};
 
 fn main() {
     // Get the `LexerDef` for the `dogwood` language.
@@ -141,24 +141,21 @@ fn eval(lexer: &dyn NonStreamingLexer<DefaultLexerTypes<u32>>, e: Expr) -> Resul
         }
     }
     match e {
-        Expr::Add { span, lhs, rhs } => {
+        Expr::Infix { span, lhs, op, rhs } => {
             save_spans!(lhs, rhs);
-            eval(lexer, *lhs)?
-                .checked_add(eval(lexer, *rhs)?)
-                .ok_or(miette!(
-                    labels = label_sides!(),
-                    help = "don't add numbers when their sum can't be stored in a u64",
-                    "evaluation of add overflowed"
-                ))
-        }
-        Expr::Mul { span, lhs, rhs } => {
-            save_spans!(lhs, rhs);
-            eval(lexer, *lhs)?
-                .checked_mul(eval(lexer, *rhs)?)
-                .ok_or(miette!(
-                    labels = label_sides!(),
-                    "evaluation of add overflowed"
-                ))
+            fn pow_fn(n: u64, p: u64) -> Option<u64> {
+                p.try_into().ok().and_then(|p| n.checked_pow(p))
+            }
+            let op_fn = match op {
+                Op::Add => u64::checked_add,
+                Op::Sub => u64::checked_sub,
+                Op::Mul => u64::checked_mul,
+                Op::Div => u64::checked_div,
+                Op::Mod => u64::checked_rem_euclid,
+                Op::Pow => pow_fn,
+            };
+            op_fn(eval(lexer, *lhs)?, eval(lexer, *rhs)?)
+                .ok_or(miette!(labels = label_sides!(), "evaluation overflowed"))
         }
         Expr::Number { span } => lexer.span_str(span).parse::<u64>().map_err(|_| {
             miette!(

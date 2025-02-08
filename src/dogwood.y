@@ -2,12 +2,16 @@
 %avoid_insert "INT"
 %%
 Expr -> Result<Expr, ()>:
-      Expr '+' Term { Ok(Expr::Add{ span: $span, lhs: Box::new($1?), rhs: Box::new($3?) }) }
+      Expr '+' Term { Ok(Expr::Infix{ span: $span, lhs: Box::new($1?), op: Op::Add, rhs: Box::new($3?) }) }
+    | Expr '-' Term { Ok(Expr::Infix{ span: $span, lhs: Box::new($1?), op: Op::Sub, rhs: Box::new($3?) }) }
     | Term { $1 }
     ;
 
 Term -> Result<Expr, ()>:
-      Term '*' Factor { Ok(Expr::Mul{ span: $span, lhs: Box::new($1?), rhs: Box::new($3?) }) }
+      Term '**' Factor { Ok(Expr::Infix{ span: $span, lhs: Box::new($1?), op: Op::Pow, rhs: Box::new($3?) }) }
+    | Term '*' Factor { Ok(Expr::Infix{ span: $span, lhs: Box::new($1?), op: Op::Mul, rhs: Box::new($3?) }) }
+    | Term '/' Factor { Ok(Expr::Infix{ span: $span, lhs: Box::new($1?), op: Op::Div, rhs: Box::new($3?) }) }
+    | Term '%' Factor { Ok(Expr::Infix{ span: $span, lhs: Box::new($1?), op: Op::Mod, rhs: Box::new($3?) }) }
     | Factor { $1 }
     ;
 
@@ -18,20 +22,25 @@ Factor -> Result<Expr, ()>:
 %%
 
 use cfgrammar::Span;
-use std::ops::Deref;
+
+#[derive(Debug)]
+pub enum Op {
+	Add,
+	Sub,
+	Mul,
+	Div,
+	Pow,
+	Mod
+}
 
 #[derive(Debug)]
 pub enum Expr {
-    Add {
-        span: Span,
-        lhs: Box<Expr>,
-        rhs: Box<Expr>,
-    },
-    Mul {
-        span: Span,
-        lhs: Box<Expr>,
-        rhs: Box<Expr>,
-    },
+	Infix {
+		span: Span,
+		lhs: Box<Expr>,
+		op: Op,
+		rhs: Box<Expr>,
+	},
     Number {
         span: Span
     }
@@ -40,8 +49,7 @@ pub enum Expr {
 impl Expr {
 	pub fn span(&self) -> &Span {
 		match self {
-			Expr::Add {span, lhs, rhs} => span,
-			Expr::Mul {span, lhs, rhs} => span,
+			Expr::Infix {span, lhs, op, rhs} => span,
 			Expr::Number {span} => span,
 		}
 	}
