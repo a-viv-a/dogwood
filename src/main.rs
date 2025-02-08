@@ -50,42 +50,55 @@ fn main() {
     }
 }
 
-macro_rules! lspan {
-    ($label:expr => $span:expr) => {{
+macro_rules! label {
+    ($label:expr => $span:expr; $f: expr) => {{
         let span = $span;
-        LabeledSpan::new_with_span(Some($label.to_string()), (span.start(), span.end()))
+        $f(Some($label.to_string()), (span.start(), span.len()))
     }};
-    ($label:expr =>e $span:expr) => {{}};
+    ($label:expr => $span:expr) => {
+        label!($label => $span; LabeledSpan::new_with_span)
+    };
 }
 
 fn eval(lexer: &dyn NonStreamingLexer<DefaultLexerTypes<u32>>, e: Expr) -> Result<u64> {
+    let lhs_span: Span;
+    let rhs_span: Span;
+    macro_rules! save_spans {
+        ($lhs:expr, $rhs:expr) => {
+            lhs_span = *$lhs.span();
+            rhs_span = *$rhs.span();
+        };
+    }
+    macro_rules! label_sides {
+        () => {
+            vec![label!("lhs" => lhs_span), label!("rhs" => rhs_span),]
+        }
+    }
     match e {
         Expr::Add { span, lhs, rhs } => {
-            let lhs_span = *lhs.span();
+            save_spans!(lhs, rhs);
             eval(lexer, *lhs)?
                 .checked_add(eval(lexer, *rhs)?)
                 .ok_or(miette!(
-                    labels = vec![lspan!("here" => span), lspan!("lhs" => lhs_span)],
+                    labels = label_sides!(),
+                    help = "don't add numbers when their sum can't be stored in a u64",
                     "evaluation of add overflowed"
                 ))
         }
         Expr::Mul { span, lhs, rhs } => {
+            save_spans!(lhs, rhs);
             eval(lexer, *lhs)?
                 .checked_mul(eval(lexer, *rhs)?)
                 .ok_or(miette!(
-                    labels = vec![lspan!("here" => span)],
+                    labels = label_sides!(),
                     "evaluation of add overflowed"
                 ))
         }
-        Expr::Number { span } => lexer
-            .span_str(span)
-            .parse::<u64>()
-            // .map_err(|_| (span, "cannot be represented as a u64")),
-            .map_err(|_| {
-                miette!(
-                    labels = vec![lspan!("this number" => span)],
-                    "cannot be represented as a u64"
-                )
-            }),
+        Expr::Number { span } => lexer.span_str(span).parse::<u64>().map_err(|_| {
+            miette!(
+                labels = vec![label!("this number" => span)],
+                "cannot be represented as a u64"
+            )
+        }),
     }
 }
