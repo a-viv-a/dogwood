@@ -36,6 +36,7 @@ fn main() {
                     .map(|e| lex_parse_error_to_miette(&lexer, e))
                     .for_each(|m| eprintln!("{:?}", m.with_source_code(l.to_owned())));
                 if let Some(Ok(r)) = res {
+                    println!("{}", r.as_rpn(&lexer));
                     match eval(&lexer, r) {
                         Ok(i) => println!("Result: {}", i),
                         Err(err) => {

@@ -8,12 +8,16 @@ Expr -> Result<Expr, ()>:
     ;
 
 Term -> Result<Expr, ()>:
-      Term '**' Factor { Ok(Expr::Infix{ span: $span, lhs: Box::new($1?), op: Op::Pow, rhs: Box::new($3?) }) }
-    | Term '*' Factor { Ok(Expr::Infix{ span: $span, lhs: Box::new($1?), op: Op::Mul, rhs: Box::new($3?) }) }
-    | Term '/' Factor { Ok(Expr::Infix{ span: $span, lhs: Box::new($1?), op: Op::Div, rhs: Box::new($3?) }) }
-    | Term '%' Factor { Ok(Expr::Infix{ span: $span, lhs: Box::new($1?), op: Op::Mod, rhs: Box::new($3?) }) }
-    | Factor { $1 }
+      Term '*' Exponent { Ok(Expr::Infix{ span: $span, lhs: Box::new($1?), op: Op::Mul, rhs: Box::new($3?) }) }
+    | Term '/' Exponent { Ok(Expr::Infix{ span: $span, lhs: Box::new($1?), op: Op::Div, rhs: Box::new($3?) }) }
+    | Term '%' Exponent { Ok(Expr::Infix{ span: $span, lhs: Box::new($1?), op: Op::Mod, rhs: Box::new($3?) }) }
+    | Exponent { $1 }
     ;
+
+Exponent -> Result<Expr, ()>:
+	  Factor '**' Exponent { Ok(Expr::Infix{ span: $span, lhs: Box::new($1?), op: Op::Pow, rhs: Box::new($3?) }) }
+	| Factor { $1 }
+	;
 
 Factor -> Result<Expr, ()>:
       '(' Expr ')' { $2 }
@@ -51,6 +55,12 @@ impl Expr {
 		match self {
 			Expr::Infix {span, lhs, op, rhs} => span,
 			Expr::Number {span} => span,
+		}
+	}
+	pub fn as_rpn(&self, lexer: &dyn crate::NonStreamingLexer<crate::DefaultLexerTypes<u32>>) -> String {
+		match self {
+			Expr::Infix {span, lhs, rhs, op} => format!("{} {} {op:?}", lhs.as_rpn(lexer), rhs.as_rpn(lexer)),
+			Expr::Number {span} => lexer.span_str(*span).to_string(),
 		}
 	}
 }
