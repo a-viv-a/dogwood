@@ -53,13 +53,13 @@ pub enum Expr {
 impl Expr {
 	pub fn span(&self) -> &Span {
 		match self {
-			Expr::Infix {span, lhs, op, rhs} => span,
+			Expr::Infix {span, lhs: _, op: _, rhs: _} => span,
 			Expr::Number {span} => span,
 		}
 	}
 	pub fn as_rpn(&self, lexer: &dyn crate::NonStreamingLexer<crate::DefaultLexerTypes<u32>>) -> String {
 		match self {
-			Expr::Infix {span, lhs, rhs, op} => format!("{} {} {op:?}", lhs.as_rpn(lexer), rhs.as_rpn(lexer)),
+			Expr::Infix {span: _, lhs, rhs, op} => format!("{} {} {op:?}", lhs.as_rpn(lexer), rhs.as_rpn(lexer)),
 			Expr::Number {span} => lexer.span_str(*span).to_string(),
 		}
 	}

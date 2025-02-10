@@ -1,11 +1,15 @@
 #![allow(clippy::unnecessary_wraps)]
 
+mod error;
+
 use std::io::{self, BufRead, Write};
 
 use cfgrammar::Span;
 use lrlex::{lrlex_mod, DefaultLexerTypes};
-use lrpar::{lrpar_mod, LexError, LexParseError, Lexeme, NonStreamingLexer, ParseRepair};
-use miette::{miette, ErrReport, LabeledSpan, Result, Severity};
+use lrpar::{lrpar_mod, NonStreamingLexer};
+use miette::{miette, LabeledSpan, Result};
+
+use crate::error::lex_parse_error_to_miette;
 
 // Using `lrlex_mod!` brings the lexer for `dogwood.l` into scope. By default the module name will be
 // `dogwood_l` (i.e. the file name, minus any extensions, with a suffix of `_l`).
@@ -51,82 +55,6 @@ fn main() {
     }
 }
 
-macro_rules! label {
-    ($label:expr => $span:expr; $f: expr) => {{
-        let span = $span;
-        $f(Some($label.to_string()), (span.start(), span.len()))
-    }};
-    ($label:expr => $span:expr) => {
-        label!($label => $span; LabeledSpan::new_with_span)
-    };
-}
-
-fn lex_parse_error_to_miette(
-    lexer: &dyn NonStreamingLexer<DefaultLexerTypes<u32>>,
-    lex_parse_error: &LexParseError<u32, DefaultLexerTypes>,
-) -> ErrReport {
-    let help = lex_parse_error.pp(lexer, &dogwood_y::token_epp);
-    match lex_parse_error {
-        LexParseError::LexError(e) => {
-            // let ((line, col), _) = lexer.line_col(e.span());
-            miette!(
-                labels = vec![label!("here" => e.span())],
-                help = help,
-                "lexing error",
-            )
-            // format!("Lexing error at line {} column {}.", line, col)
-        }
-        LexParseError::ParseError(e) => {
-            let mut labels: Vec<LabeledSpan> = vec![];
-
-            // show the first repair sequence visually! this is the one that is used
-            if let Some(rs) = e.repairs().first() {
-                // Merge together Deletes iff they are consecutive (if they are separated
-                // by even a single character, they will not be merged).
-                let mut i = 0;
-                while i < rs.len() {
-                    match rs[i] {
-                        ParseRepair::Delete(l) => {
-                            let mut j = i + 1;
-                            let mut last_end = l.span().end();
-                            while j < rs.len() {
-                                if let ParseRepair::Delete(next_l) = rs[j] {
-                                    if next_l.span().start() == last_end {
-                                        last_end = next_l.span().end();
-                                        j += 1;
-                                        continue;
-                                    }
-                                }
-                                break;
-                            }
-                            let t = &lexer
-                                .span_str(Span::new(l.span().start(), last_end))
-                                .replace('\n', "\\n");
-                            labels.push(label!(format!("delete {t}") => Span::new(l.span().start(), last_end)));
-                            i = j;
-                        }
-                        ParseRepair::Insert(tidx) => {
-                            labels.push(label!(format!("insert {}", dogwood_y::token_epp(tidx).unwrap()) => e.lexeme().span()));
-                            i += 1;
-                        }
-                        ParseRepair::Shift(l) => {
-                            let t = &lexer.span_str(l.span()).replace('\n', "\\n");
-                            labels.push(label!(format!("shift {t}") => l.span()));
-                            i += 1;
-                        }
-                    }
-                }
-            }
-
-            if labels.is_empty() {
-                labels.push(label!("here" => e.lexeme().span()));
-            }
-
-            miette!(help = help, labels = labels, "parsing error")
-        }
-    }
-}
-
 fn eval(lexer: &dyn NonStreamingLexer<DefaultLexerTypes<u32>>, e: Expr) -> Result<u64> {
     let lhs_span: Span;
     let rhs_span: Span;
@@ -142,7 +70,12 @@ fn eval(lexer: &dyn NonStreamingLexer<DefaultLexerTypes<u32>>, e: Expr) -> Resul
         }
     }
     match e {
-        Expr::Infix { span, lhs, op, rhs } => {
+        Expr::Infix {
+            span: _,
+            lhs,
+            op,
+            rhs,
+        } => {
             save_spans!(lhs, rhs);
             fn pow_fn(n: u64, p: u64) -> Option<u64> {
                 p.try_into().ok().and_then(|p| n.checked_pow(p))
@@ -164,5 +97,53 @@ fn eval(lexer: &dyn NonStreamingLexer<DefaultLexerTypes<u32>>, e: Expr) -> Resul
                 "cannot be represented as a u64"
             )
         }),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    macro_rules! eval_test {
+        ($($name:ident: $input:expr => $output:expr,)+) => {$(
+            #[test]
+            fn $name() {
+                let input = $input;
+                println!("{input}");
+                let lexerdef = dogwood_l::lexerdef();
+                let lexer = lexerdef.lexer($input);
+                let (res, errs) = dogwood_y::parse(&lexer);
+                assert!(errs.is_empty());
+                let r = res.unwrap().unwrap();
+                println!("{}", r.as_rpn(&lexer));
+                assert_eq!(eval(&lexer, r).unwrap(), $output)
+            }
+        )+};
+    }
+
+    #[cfg(test)]
+    mod basic {
+        use super::*;
+
+        eval_test! {
+            aa: "1 + 1"  => 2,
+            ba: "1 + 2"  => 3,
+            ca: "3 * 5"  => 15,
+            da: "3 ** 2" => 9,
+        }
+    }
+
+    #[cfg(test)]
+    mod order_of_operations {
+        use super::*;
+
+        eval_test! {
+            aa: "3 + 7 * 2"        => 17,
+            ba: "3 + 5 ** 3 ** 3"  => 7450580596923828128,
+            ca: "30 / 2 * 3"       => 45,
+            cb: "(30 / 2) * 3"     => 45,
+            cc: "30 / (2 * 3)"     => 5,
+            da: "2 ** 5 % 6"       => 2,
+        }
     }
 }
