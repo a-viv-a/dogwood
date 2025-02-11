@@ -1,6 +1,7 @@
 #![allow(clippy::unnecessary_wraps)]
 
 mod error;
+mod translate;
 
 use std::io::{self, BufRead, Write};
 
@@ -8,6 +9,7 @@ use cfgrammar::Span;
 use lrlex::{lrlex_mod, DefaultLexerTypes};
 use lrpar::{lrpar_mod, NonStreamingLexer};
 use miette::{miette, LabeledSpan, Result};
+use translate::expr_to_function;
 
 use crate::error::lex_parse_error_to_miette;
 
@@ -24,6 +26,7 @@ fn main() {
     // Get the `LexerDef` for the `dogwood` language.
     let lexerdef = dogwood_l::lexerdef();
     let stdin = io::stdin();
+    expr_to_function();
     loop {
         print!(">>> ");
         io::stdout().flush().ok();

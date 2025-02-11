@@ -13,6 +13,7 @@ lrpar = "0.13.9"
 
 [dependencies]
 cfgrammar = "0.13.9"
+cranelift = "0.116.1"
 lrlex = "0.13.9"
 lrpar = "0.13.9"
 miette = { version = "7.5.0", features = ["fancy"] }
