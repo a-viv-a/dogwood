@@ -1,4 +1,4 @@
-use cranelift::frontend::{FunctionBuilder, FunctionBuilderContext};
+use cranelift::frontend::{FuncInstBuilder, FunctionBuilder, FunctionBuilderContext};
 use cranelift::prelude::{Type, Value};
 use cranelift::{
     codegen::{
@@ -11,7 +11,7 @@ use lrlex::DefaultLexerTypes;
 use lrpar::NonStreamingLexer;
 use miette::{miette, Result};
 
-use crate::dogwood_y::Expr;
+use crate::dogwood_y::{Expr, Op};
 use crate::label;
 
 pub fn expr_to_function(
@@ -44,7 +44,7 @@ pub fn expr_to_function(
     Ok(())
 }
 
-trait TranslateToCranelift {
+trait ExprToCranelift {
     fn as_cranelift(
         &self,
         lexer: &dyn NonStreamingLexer<DefaultLexerTypes<u32>>,
@@ -52,7 +52,23 @@ trait TranslateToCranelift {
     ) -> Result<Value>;
 }
 
-impl TranslateToCranelift for Expr {
+trait InfixOpToCranelift {
+    fn as_cranelift(&self, builder: &mut FunctionBuilder, lhs: Value, rhs: Value) -> Result<Value>;
+}
+
+impl InfixOpToCranelift for Op {
+    fn as_cranelift(&self, builder: &mut FunctionBuilder, lhs: Value, rhs: Value) -> Result<Value> {
+        match self {
+            Op::Add => Ok(builder.ins().iadd(lhs, rhs)),
+            Op::Sub => Ok(builder.ins().isub(lhs, rhs)),
+            Op::Mul => Ok(builder.ins().imul(lhs, rhs)),
+            Op::Div => Ok(builder.ins().sdiv(lhs, rhs)),
+            _ => todo!(),
+        }
+    }
+}
+
+impl ExprToCranelift for Expr {
     fn as_cranelift(
         &self,
         lexer: &dyn NonStreamingLexer<DefaultLexerTypes<u32>>,
@@ -63,7 +79,7 @@ impl TranslateToCranelift for Expr {
             Expr::Infix { span, lhs, op, rhs } => {
                 let lhs_val = lhs.as_cranelift(lexer, builder)?;
                 let rhs_val = rhs.as_cranelift(lexer, builder)?;
-                Ok(builder.ins().iadd(lhs_val, rhs_val))
+                op.as_cranelift(builder, lhs_val, rhs_val)
             }
             Expr::Number { span } => lexer
                 .span_str(*span)
