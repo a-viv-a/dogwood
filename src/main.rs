@@ -26,7 +26,6 @@ fn main() {
     // Get the `LexerDef` for the `dogwood` language.
     let lexerdef = dogwood_l::lexerdef();
     let stdin = io::stdin();
-    expr_to_function();
     loop {
         print!(">>> ");
         io::stdout().flush().ok();
@@ -44,6 +43,7 @@ fn main() {
                     .for_each(|m| eprintln!("{:?}", m.with_source_code(l.to_owned())));
                 if let Some(Ok(r)) = res {
                     println!("{}", r.as_rpn(&lexer));
+                    expr_to_function(&lexer, r.clone());
                     match eval(&lexer, r) {
                         Ok(i) => println!("Result: {}", i),
                         Err(err) => {

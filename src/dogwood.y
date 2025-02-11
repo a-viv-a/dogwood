@@ -27,7 +27,7 @@ Factor -> Result<Expr, ()>:
 
 use cfgrammar::Span;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Op {
 	Add,
 	Sub,
@@ -37,7 +37,7 @@ pub enum Op {
 	Mod
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Expr {
 	Infix {
 		span: Span,

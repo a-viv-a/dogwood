@@ -12,7 +12,7 @@ macro_rules! label {
         $f(Some($label.to_string()), (span.start(), span.len()))
     }};
     ($label:expr => $span:expr) => {
-        label!($label => $span; LabeledSpan::new_with_span)
+        label!($label => $span; miette::LabeledSpan::new_with_span)
     };
 }
 
