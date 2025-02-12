@@ -1,6 +1,8 @@
 #![allow(clippy::unnecessary_wraps)]
 
 mod error;
+mod jit;
+mod stackhashmap;
 mod translate;
 
 use std::io::{self, BufRead, Write};
