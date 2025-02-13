@@ -1,7 +1,6 @@
 #![allow(clippy::unnecessary_wraps)]
 
 mod error;
-mod jit;
 mod stackhashmap;
 mod translate;
 
@@ -45,7 +44,8 @@ fn main() {
                     .for_each(|m| eprintln!("{:?}", m.with_source_code(l.to_owned())));
                 if let Some(Ok(r)) = res {
                     println!("{}", r.as_rpn(&lexer));
-                    expr_to_function(&lexer, r.clone());
+                    let f = expr_to_function(&lexer, r.clone()).unwrap();
+                    dbg!(f());
                     match eval(&lexer, r) {
                         Ok(i) => println!("Result: {}", i),
                         Err(err) => {

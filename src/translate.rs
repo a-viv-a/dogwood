@@ -1,8 +1,13 @@
+use std::mem;
+
+use cranelift::codegen::{verify_function, Context};
 use cranelift::frontend::{FuncInstBuilder, FunctionBuilder, FunctionBuilderContext};
-use cranelift::prelude::{Type, Value};
+use cranelift::jit::{JITBuilder, JITModule};
+use cranelift::module::{default_libcall_names, Linkage, Module};
+use cranelift::prelude::{settings, Type, Value};
 use cranelift::{
     codegen::{
-        ir::{types::I32, AbiParam, Function, Signature, UserFuncName},
+        ir::{types, AbiParam, Function, Signature, UserFuncName},
         isa::CallConv,
     },
     prelude::InstBuilder,
@@ -17,14 +22,32 @@ use crate::label;
 pub fn expr_to_function(
     lexer: &dyn NonStreamingLexer<DefaultLexerTypes<u32>>,
     expr: Expr,
-) -> Result<()> {
-    let mut sig = Signature::new(CallConv::Fast);
-    sig.returns.push(AbiParam::new(I32));
-    sig.params.push(AbiParam::new(I32));
-    let mut fn_builder_ctx = FunctionBuilderContext::new();
-    let mut func = Function::with_name_signature(UserFuncName::user(0, 0), sig);
+) -> Result<extern "C" fn() -> u64> {
+    let mut flag_builder = settings::builder();
+    let isa_builder = cranelift::native::builder().unwrap_or_else(|msg| {
+        panic!("host machine is not supported: {msg}");
+    });
+    let isa = isa_builder
+        .finish(settings::Flags::new(flag_builder))
+        .unwrap();
 
-    let mut builder = FunctionBuilder::new(&mut func, &mut fn_builder_ctx);
+    let mut module = JITModule::new(JITBuilder::with_isa(isa, default_libcall_names()));
+    let mut ctx = module.make_context();
+
+    let mut sig = module.make_signature();
+    sig.returns.push(AbiParam::new(types::I64));
+    // sig.params.push(AbiParam::new(types::I32));
+
+    let mut fn_builder_ctx = FunctionBuilderContext::new();
+    // let mut func = Function::with_name_signature(UserFuncName::user(0, 0), sig);
+    let mut func = module
+        .declare_function("repl", Linkage::Local, &sig)
+        .unwrap();
+
+    ctx.func.signature = sig;
+    ctx.func.name = UserFuncName::user(0, func.as_u32());
+
+    let mut builder = FunctionBuilder::new(&mut ctx.func, &mut fn_builder_ctx);
     let block = builder.create_block();
     builder.seal_block(block);
 
@@ -33,15 +56,17 @@ pub fn expr_to_function(
     builder.ins().return_(&[v]);
 
     builder.finalize();
+    println!("{}", ctx.func.display());
+    verify_function(&ctx.func, module.isa().flags()).unwrap();
 
-    // let res = verify_function(&func, &*isa);
+    module.define_function(func, &mut ctx).unwrap();
 
-    // if let Err(errors) = res {
-    //     panic!("{}", errors);
-    // }
+    module.finalize_definitions().unwrap();
 
-    println!("{}", func.display());
-    Ok(())
+    let code = module.get_finalized_function(func);
+    let ptr = unsafe { mem::transmute::<_, extern "C" fn() -> u64>(code) };
+
+    Ok(ptr)
 }
 
 trait ExprToCranelift {
