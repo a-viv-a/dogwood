@@ -46,13 +46,13 @@ fn main() {
                     println!("{}", r.as_rpn(&lexer));
                     let f = expr_to_function(&lexer, r.clone()).unwrap();
                     dbg!(f());
-                    match eval(&lexer, r) {
-                        Ok(i) => println!("Result: {}", i),
-                        Err(err) => {
-                            // let ((line, col), _) = lexer.line_col(span);
-                            eprintln!("{:?}", err.with_source_code(l.to_owned()))
-                        }
-                    }
+                    // match eval(&lexer, r) {
+                    //     Ok(i) => println!("Result: {}", i),
+                    //     Err(err) => {
+                    //         // let ((line, col), _) = lexer.line_col(span);
+                    //         eprintln!("{:?}", err.with_source_code(l.to_owned()))
+                    //     }
+                    // }
                 }
             }
             _ => break,
@@ -60,50 +60,50 @@ fn main() {
     }
 }
 
-fn eval(lexer: &dyn NonStreamingLexer<DefaultLexerTypes<u32>>, e: Expr) -> Result<u64> {
-    let lhs_span: Span;
-    let rhs_span: Span;
-    macro_rules! save_spans {
-        ($lhs:expr, $rhs:expr) => {
-            lhs_span = *$lhs.span();
-            rhs_span = *$rhs.span();
-        };
-    }
-    macro_rules! label_sides {
-        () => {
-            vec![label!("lhs" => lhs_span), label!("rhs" => rhs_span),]
-        }
-    }
-    match e {
-        Expr::Infix {
-            span: _,
-            lhs,
-            op,
-            rhs,
-        } => {
-            save_spans!(lhs, rhs);
-            fn pow_fn(n: u64, p: u64) -> Option<u64> {
-                p.try_into().ok().and_then(|p| n.checked_pow(p))
-            }
-            let op_fn = match op {
-                Op::Add => u64::checked_add,
-                Op::Sub => u64::checked_sub,
-                Op::Mul => u64::checked_mul,
-                Op::Div => u64::checked_div,
-                Op::Mod => u64::checked_rem_euclid,
-                Op::Pow => pow_fn,
-            };
-            op_fn(eval(lexer, *lhs)?, eval(lexer, *rhs)?)
-                .ok_or(miette!(labels = label_sides!(), "evaluation overflowed"))
-        }
-        Expr::Number { span } => lexer.span_str(span).parse::<u64>().map_err(|_| {
-            miette!(
-                labels = vec![label!("this number" => span)],
-                "cannot be represented as a u64"
-            )
-        }),
-    }
-}
+// fn eval(lexer: &dyn NonStreamingLexer<DefaultLexerTypes<u32>>, e: Expr) -> Result<u64> {
+//     let lhs_span: Span;
+//     let rhs_span: Span;
+//     macro_rules! save_spans {
+//         ($lhs:expr, $rhs:expr) => {
+//             lhs_span = *$lhs.span();
+//             rhs_span = *$rhs.span();
+//         };
+//     }
+//     macro_rules! label_sides {
+//         () => {
+//             vec![label!("lhs" => lhs_span), label!("rhs" => rhs_span),]
+//         }
+//     }
+//     match e {
+//         Expr::Infix {
+//             span: _,
+//             lhs,
+//             op,
+//             rhs,
+//         } => {
+//             save_spans!(lhs, rhs);
+//             fn pow_fn(n: u64, p: u64) -> Option<u64> {
+//                 p.try_into().ok().and_then(|p| n.checked_pow(p))
+//             }
+//             let op_fn = match op {
+//                 Op::Add => u64::checked_add,
+//                 Op::Sub => u64::checked_sub,
+//                 Op::Mul => u64::checked_mul,
+//                 Op::Div => u64::checked_div,
+//                 Op::Mod => u64::checked_rem_euclid,
+//                 Op::Pow => pow_fn,
+//             };
+//             op_fn(eval(lexer, *lhs)?, eval(lexer, *rhs)?)
+//                 .ok_or(miette!(labels = label_sides!(), "evaluation overflowed"))
+//         }
+//         Expr::Number { span } => lexer.span_str(span).parse::<u64>().map_err(|_| {
+//             miette!(
+//                 labels = vec![label!("this number" => span)],
+//                 "cannot be represented as a u64"
+//             )
+//         }),
+//     }
+// }
 
 #[cfg(test)]
 mod tests {
@@ -121,7 +121,7 @@ mod tests {
                 assert!(errs.is_empty());
                 let r = res.unwrap().unwrap();
                 println!("{}", r.as_rpn(&lexer));
-                assert_eq!(eval(&lexer, r).unwrap(), $output)
+                assert_eq!(expr_to_function(&lexer, r).unwrap()(), $output)
             }
         )+};
     }
@@ -135,6 +135,8 @@ mod tests {
             ba: "1 + 2"  => 3,
             ca: "3 * 5"  => 15,
             da: "3 ** 2" => 9,
+            ea: "10 % 2" => 0,
+            eb: "10 % 7" => 3,
         }
     }
 

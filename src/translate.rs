@@ -88,6 +88,7 @@ impl InfixOpToCranelift for Op {
             Op::Sub => Ok(builder.ins().isub(lhs, rhs)),
             Op::Mul => Ok(builder.ins().imul(lhs, rhs)),
             Op::Div => Ok(builder.ins().sdiv(lhs, rhs)),
+            Op::Mod => Ok(builder.ins().srem(lhs, rhs)),
             _ => todo!(),
         }
     }
