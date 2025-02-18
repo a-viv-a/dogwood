@@ -102,8 +102,24 @@ fn main() {
 mod tests {
     use super::*;
 
+    macro_rules! restore_jit_type {
+        ($v:expr, bool) => {{
+            let v = $v;
+            assert!(v == 1 || v == 0);
+            if v == 1 {
+                true
+            } else {
+                false
+            }
+        }};
+        ($v:expr, $type:ty) => {{
+            let v: $type = $v.try_into().unwrap();
+            v
+        }};
+    }
+
     macro_rules! eval_test {
-        ($($(#[$att:ident])? $name:ident: $input:expr => $output:expr,)+) => {$(
+        ($($(#[$att:ident])? $name:ident: $type:tt: $input:expr => $output:expr,)+) => {$(
             #[test]
             $(#[$att])?
             fn $name() {
@@ -120,7 +136,8 @@ mod tests {
 
                 let r = res.unwrap().unwrap();
                 println!("{}", r.as_rpn(&lexer));
-                assert_eq!(expr_to_function(&lexer, r).map_err(|e| e.with_source_code(input)).unwrap()(), $output)
+                let jit_val = expr_to_function(&lexer, r).map_err(|e| e.with_source_code(input)).unwrap()();
+                assert_eq!(restore_jit_type!(jit_val, $type), $output)
             }
         )+};
     }
@@ -130,18 +147,20 @@ mod tests {
         use super::*;
 
         eval_test! {
-            aa: "1 + 1"  => 2,
-            ba: "1 + 2"  => 3,
-            ca: "3 * 5"  => 15,
+            aa: i64 : "1 + 1"          => 2,
+            ba: i64 : "1 + 2"          => 3,
+            ca: i64 : "3 * 5"          => 15,
             #[ignore]
-            da: "3 ^ 2" => 9,
-            ea: "10 % 2" => 0,
-            eb: "10 % 7" => 3,
-            fa: "-5"     => -5,
-            fb: "-5 + 1" => -4,
-            fc: "5 +-1"  => 4,
-
-            ga: "true and false"  => 4,
+            da: i64 : "3 ^ 2"          => 9,
+            ea: i64 : "10 % 2"         => 0,
+            eb: i64 : "10 % 7"         => 3,
+            fa: i64 : "-5"             => -5,
+            fb: i64 : "-5 + 1"         => -4,
+            fc: i64 : "5 +-1"          => 4,
+            ga: bool: "true"           => true,
+            gb: bool: "false"          => false,
+            gc: bool: "true and false" => false,
+            gd: bool: "true or false"  => true,
         }
     }
 
@@ -150,14 +169,14 @@ mod tests {
         use super::*;
 
         eval_test! {
-            aa: "3 + 7 * 2"        => 17,
+            aa: i64 : "3 + 7 * 2"      => 17,
             #[ignore]
-            ba: "3 + 5 ^ 3 ^ 3"  => 7450580596923828128,
-            ca: "30 / 2 * 3"       => 45,
-            cb: "(30 / 2) * 3"     => 45,
-            cc: "30 / (2 * 3)"     => 5,
+            ba: i64 : "3 + 5 ^ 3 ^ 3"  => 7450580596923828128,
+            ca: i64 : "30 / 2 * 3"     => 45,
+            cb: i64 : "(30 / 2) * 3"   => 45,
+            cc: i64 : "30 / (2 * 3)"   => 5,
             #[ignore]
-            da: "2 ^ 5 % 6"       => 2,
+            da: i64 : "2 ^ 5 % 6"      => 2,
         }
     }
 }
