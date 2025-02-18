@@ -22,6 +22,7 @@ Exponent -> Result<Expr, ()>:
 Factor -> Result<Expr, ()>:
       '(' Expr ')' { $2 }
     | 'INT' { Ok(Expr::Literal(Literal::U64($span))) }
+	| 'BOOL' { Ok(Expr::Literal(Literal::Bool($span))) }
     ;
 %%
 
@@ -54,10 +55,11 @@ pub enum Expr {
 pub enum Literal {
 	U64(Span),
 	I64(Span),
+	Bool(Span)
 }
 
 macro_rules! parse_as {
-	($fn_name:ident, $literal:ident, $type:ty, $errfn:ident) => {
+	($fn_name:ident, $literal:ident, $type:ty) => {
 		pub fn $fn_name(&self, lexer: DefaultLexerAlias) -> miette::Result<$type> {
 			use crate::label;
 			use miette::{miette, IntoDiagnostic, MietteDiagnostic};
@@ -74,17 +76,19 @@ macro_rules! parse_as {
 					)),
 				lit => Err(miette!(
 					labels = vec![
-						label!(format!("this parsed as a {} but cannot be interpreted as an {}", lit.typename(), stringify!($type)) => *self.span())
+						label!(format!("this parsed as a {}", lit.typename()) => *self.span())
 					],
-					"incorrect type assumption"
+					"incorrect type assumption during translation, attempted to treat {} `{}`",
+					lit.typename(),
+					stringify!($fn_name)
 				))
 			}
 		}
 	};
 	(many: $(
-		($fn_name:ident, $literal:ident, $type:ty, $errfn:ident),
+		($fn_name:ident, $literal:ident, $type:ty),
 	)+) => {
-		$( parse_as!($fn_name, $literal, $type, $errfn); )+
+		$( parse_as!($fn_name, $literal, $type); )+
 	}
 }
 
@@ -94,6 +98,7 @@ impl Literal {
 		match self {
 			Literal::U64(span) => span,
 			Literal::I64(span) => span,
+			Literal::Bool(span) => span,
 		}
 	}
 	pub fn as_rpn(&self, lexer: DefaultLexerAlias) -> String {
@@ -104,12 +109,14 @@ impl Literal {
 		match self {
 			Literal::U64(_) => "u64",
 			Literal::I64(_) => "i64",
+			Literal::Bool(_) => "bool"
 		}
 	}
 
 	parse_as! {many:
-		(as_u64, U64, u64, msg),
-		(as_i64, I64, i64, msg),
+		(as_u64, U64, u64),
+		(as_i64, I64, i64),
+		(as_bool, Bool, bool),
 	}
 }
 

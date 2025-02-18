@@ -6,10 +6,8 @@ mod translate;
 
 use std::io::{self, BufRead, Write};
 
-use cfgrammar::Span;
-use lrlex::{lrlex_mod, DefaultLexerTypes};
-use lrpar::{lrpar_mod, NonStreamingLexer};
-use miette::{miette, LabeledSpan, Result};
+use lrlex::lrlex_mod;
+use lrpar::lrpar_mod;
 use translate::expr_to_function;
 
 use crate::error::lex_parse_error_to_miette;
@@ -20,8 +18,6 @@ lrlex_mod!("dogwood.l");
 // Using `lrpar_mod!` brings the parser for `dogwood.y` into scope. By default the module name will be
 // `dogwood_y` (i.e. the file name, minus any extensions, with a suffix of `_y`).
 lrpar_mod!("dogwood.y");
-
-use dogwood_y::{Expr, Op};
 
 fn main() {
     // Get the `LexerDef` for the `dogwood` language.
