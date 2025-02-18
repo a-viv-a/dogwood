@@ -35,7 +35,7 @@ pub fn expr_to_function(
     let mut ctx = module.make_context();
 
     let mut sig = module.make_signature();
-    sig.returns.push(AbiParam::new(types::I64));
+    sig.returns.push(AbiParam::new(expr.get_type()));
     // sig.params.push(AbiParam::new(types::I32));
 
     let mut fn_builder_ctx = FunctionBuilderContext::new();
@@ -52,11 +52,7 @@ pub fn expr_to_function(
     builder.seal_block(block);
 
     builder.switch_to_block(block);
-    let types = Types {
-        i64: Type::int(64).unwrap(),
-        bool: Type::int(8).unwrap(),
-    };
-    let v = expr.as_cranelift(lexer, &mut builder, &types)?;
+    let v = expr.as_cranelift(lexer, &mut builder)?;
     builder.ins().return_(&[v]);
 
     builder.finalize();
@@ -66,19 +62,53 @@ pub fn expr_to_function(
         .into_diagnostic()
         .map_err(|err| err.wrap_err(format!("function clif:\n{}", ctx.func.display())))?;
     println!("{}", ctx.func.display());
+    // TODO: is this needed?
     verify_function(&ctx.func, module.isa().flags()).into_diagnostic()?;
 
     module.finalize_definitions().unwrap();
 
+    // WARN: I THINK THIS IS WRONG SINCE THE POINTERS RETVAL MIGHT BE SMALLER
     let code = module.get_finalized_function(func);
     let ptr = unsafe { mem::transmute::<_, extern "C" fn() -> i64>(code) };
 
     Ok(ptr)
 }
 
-struct Types {
-    i64: Type,
-    bool: Type,
+// TODO: delete this in favor of actual type annotation and inferrence system
+trait Typed {
+    fn get_type(&self) -> Type;
+}
+
+impl Typed for Op {
+    fn get_type(&self) -> Type {
+        match self {
+            Op::Add | Op::Sub | Op::Mul | Op::Div | Op::Mod => types::I64,
+            _ => todo!(),
+        }
+    }
+}
+
+impl Typed for Literal {
+    fn get_type(&self) -> Type {
+        match self {
+            Literal::Integer(_) => types::I64,
+            Literal::Bool(_) => types::I8,
+        }
+    }
+}
+
+impl Typed for Expr {
+    fn get_type(&self) -> Type {
+        match self {
+            Expr::Infix {
+                span: _,
+                lhs: _,
+                op,
+                rhs: _,
+            } => op.get_type(),
+            Expr::Literal(literal) => literal.get_type(),
+        }
+    }
 }
 
 trait ExprToCranelift {
@@ -86,7 +116,6 @@ trait ExprToCranelift {
         &self,
         lexer: &dyn NonStreamingLexer<DefaultLexerTypes<u32>>,
         builder: &mut FunctionBuilder,
-        types: &Types,
     ) -> Result<Value>;
 }
 
@@ -113,22 +142,24 @@ impl ExprToCranelift for Expr {
         &self,
         lexer: &dyn NonStreamingLexer<DefaultLexerTypes<u32>>,
         builder: &mut FunctionBuilder,
-        types: &Types,
     ) -> Result<Value> {
         // TODO: handle type correctly, actually choose the right asm instruction
         match self {
             Expr::Infix { span, lhs, op, rhs } => {
-                let lhs_val = lhs.as_cranelift(lexer, builder, types)?;
-                let rhs_val = rhs.as_cranelift(lexer, builder, types)?;
+                let lhs_val = lhs.as_cranelift(lexer, builder)?;
+                let rhs_val = rhs.as_cranelift(lexer, builder)?;
                 op.as_cranelift(builder, lhs_val, rhs_val)
             }
             Expr::Literal(literal) => match literal {
                 Literal::Integer(_) => literal
                     .as_i64(lexer)
-                    .map(|n| builder.ins().iconst(types.i64, n)),
+                    .map(|n| builder.ins().iconst(types::I64, n)),
                 Literal::Bool(_) => literal
                     .as_bool(lexer)
-                    .map(|b| builder.ins().iconst(types.bool, if b { 1 } else { 0 })),
+                    // bools are represented by 0 or 1 value in an I8
+                    // https://github.com/bytecodealliance/wasmtime/issues/3205
+                    // https://github.com/bytecodealliance/wasmtime/pull/5031
+                    .map(|b| builder.ins().iconst(types::I8, if b { 1 } else { 0 })),
             },
         }
     }

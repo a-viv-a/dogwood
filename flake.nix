@@ -33,6 +33,7 @@
 
               bacon
               just
+              fastmod
             ];
             RUST_SRC_PATH = rustPlatform.rustLibSrc;
           };
