@@ -61,7 +61,11 @@ pub fn lex_parse_error_to_miette(
                             i = j;
                         }
                         ParseRepair::Insert(tidx) => {
-                            labels.push(label!(format!("insert {}", dogwood_y::token_epp(tidx).unwrap()) => e.lexeme().span()));
+                            labels.push(label!(format!("insert {}", dogwood_y::token_epp(tidx).unwrap()) => Span::new(
+                                // TODO: this sucks...
+                                e.lexeme().span().start(),
+                                e.lexeme().span().start()
+                            )));
                             i += 1;
                         }
                         ParseRepair::Shift(l) => {
