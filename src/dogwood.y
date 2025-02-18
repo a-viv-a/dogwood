@@ -21,7 +21,7 @@ Exponent -> Result<Expr, ()>:
 
 Factor -> Result<Expr, ()>:
       '(' Expr ')' { $2 }
-    | 'INT' { Ok(Expr::Number{ span: $span }) }
+    | 'INT' { Ok(Expr::Literal(Literal::U64($span))) }
     ;
 %%
 
@@ -37,6 +37,8 @@ pub enum Op {
 	Mod
 }
 
+type DefaultLexerAlias<'a, 'b> = &'a dyn lrpar::NonStreamingLexer<'b, lrlex::DefaultLexerTypes<u32>>;
+
 #[derive(Debug, Clone)]
 pub enum Expr {
 	Infix {
@@ -45,22 +47,83 @@ pub enum Expr {
 		op: Op,
 		rhs: Box<Expr>,
 	},
-    Number {
-        span: Span
-    }
+	Literal(Literal)
+}
+
+#[derive(Debug, Clone)]
+pub enum Literal {
+	U64(Span),
+	I64(Span),
+}
+
+macro_rules! parse_as {
+	($fn_name:ident, $literal:ident, $type:ty, $errfn:ident) => {
+		pub fn $fn_name(&self, lexer: DefaultLexerAlias) -> miette::Result<$type> {
+			use crate::label;
+			use miette::{miette, IntoDiagnostic, MietteDiagnostic};
+			match self {
+				Self::$literal(span) => lexer
+					.span_str(*span)
+					.parse::<$type>()
+					.map_err(|e| miette!(
+						labels = vec![
+							label!(format!("tried to represent this value as a {}", stringify!($type)) => span)
+						],
+						"can't represent as {}: {e}",
+						stringify!($type)
+					)),
+				lit => Err(miette!(
+					labels = vec![
+						label!(format!("this parsed as a {} but cannot be interpreted as an {}", lit.typename(), stringify!($type)) => *self.span())
+					],
+					"incorrect type assumption"
+				))
+			}
+		}
+	};
+	(many: $(
+		($fn_name:ident, $literal:ident, $type:ty, $errfn:ident),
+	)+) => {
+		$( parse_as!($fn_name, $literal, $type, $errfn); )+
+	}
+}
+
+impl Literal {
+	// should this be a trait?
+	pub fn span(&self) -> &Span {
+		match self {
+			Literal::U64(span) => span,
+			Literal::I64(span) => span,
+		}
+	}
+	pub fn as_rpn(&self, lexer: DefaultLexerAlias) -> String {
+		format!("{}({})", self.typename(), lexer.span_str(*self.span()))
+	}
+
+	pub fn typename(&self) -> &str {
+		match self {
+			Literal::U64(_) => "u64",
+			Literal::I64(_) => "i64",
+		}
+	}
+
+	parse_as! {many:
+		(as_u64, U64, u64, msg),
+		(as_i64, I64, i64, msg),
+	}
 }
 
 impl Expr {
 	pub fn span(&self) -> &Span {
 		match self {
 			Expr::Infix {span, lhs: _, op: _, rhs: _} => span,
-			Expr::Number {span} => span,
+			Expr::Literal(literal) => literal.span(),
 		}
 	}
-	pub fn as_rpn(&self, lexer: &dyn crate::NonStreamingLexer<crate::DefaultLexerTypes<u32>>) -> String {
+	pub fn as_rpn(&self, lexer: DefaultLexerAlias) -> String {
 		match self {
 			Expr::Infix {span: _, lhs, rhs, op} => format!("{} {} {op:?}", lhs.as_rpn(lexer), rhs.as_rpn(lexer)),
-			Expr::Number {span} => lexer.span_str(*span).to_string(),
+			Expr::Literal(literal) => literal.as_rpn(lexer),
 		}
 	}
 }

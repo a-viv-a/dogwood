@@ -44,15 +44,12 @@ fn main() {
                     .for_each(|m| eprintln!("{:?}", m.with_source_code(l.to_owned())));
                 if let Some(Ok(r)) = res {
                     println!("{}", r.as_rpn(&lexer));
-                    let f = expr_to_function(&lexer, r.clone()).unwrap();
-                    dbg!(f());
-                    // match eval(&lexer, r) {
-                    //     Ok(i) => println!("Result: {}", i),
-                    //     Err(err) => {
-                    //         // let ((line, col), _) = lexer.line_col(span);
-                    //         eprintln!("{:?}", err.with_source_code(l.to_owned()))
-                    //     }
-                    // }
+                    match expr_to_function(&lexer, r.clone()) {
+                        Ok(f) => println!("Result: {}", f()),
+                        Err(err) => {
+                            eprintln!("{:?}", err.with_source_code(l.to_owned()))
+                        }
+                    }
                 }
             }
             _ => break,

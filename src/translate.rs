@@ -88,6 +88,7 @@ impl InfixOpToCranelift for Op {
             Op::Sub => Ok(builder.ins().isub(lhs, rhs)),
             Op::Mul => Ok(builder.ins().imul(lhs, rhs)),
             Op::Div => Ok(builder.ins().sdiv(lhs, rhs)),
+            // TODO: fix sign!
             Op::Mod => Ok(builder.ins().srem(lhs, rhs)),
             _ => todo!(),
         }
@@ -107,20 +108,11 @@ impl ExprToCranelift for Expr {
                 let rhs_val = rhs.as_cranelift(lexer, builder)?;
                 op.as_cranelift(builder, lhs_val, rhs_val)
             }
-            Expr::Number { span } => lexer
-                .span_str(*span)
-                .parse::<u64>()
-                .map(|n| {
-                    builder
-                        .ins()
-                        .iconst(Type::int(64).unwrap(), i64::try_from(n).unwrap())
-                })
-                .map_err(|_| {
-                    miette!(
-                        labels = vec![label!("this number" => span)],
-                        "cannot be represented as a u64"
-                    )
-                }),
+            Expr::Literal(literal) => literal.as_u64(lexer).map(|n| {
+                builder
+                    .ins()
+                    .iconst(Type::int(64).unwrap(), i64::try_from(n).unwrap())
+            }),
         }
     }
 }
