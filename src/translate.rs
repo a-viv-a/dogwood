@@ -92,7 +92,7 @@ impl Typed for Literal {
     fn get_type(&self) -> Type {
         match self {
             Literal::Integer(_) => types::I64,
-            Literal::Bool(_) => types::I8,
+            Literal::Boolean(_) => types::I8,
         }
     }
 }
@@ -154,7 +154,7 @@ impl ExprToCranelift for Expr {
                 Literal::Integer(_) => literal
                     .as_i64(lexer)
                     .map(|n| builder.ins().iconst(types::I64, n)),
-                Literal::Bool(_) => literal
+                Literal::Boolean(_) => literal
                     .as_bool(lexer)
                     // bools are represented by 0 or 1 value in an I8
                     // https://github.com/bytecodealliance/wasmtime/issues/3205

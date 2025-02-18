@@ -22,7 +22,7 @@ Exponent -> Result<Expr, ()>:
 Factor -> Result<Expr, ()>:
       '(' Expr ')' { $2 }
     | 'INT' { Ok(Expr::Literal(Literal::Integer($span))) }
-	| 'BOOL' { Ok(Expr::Literal(Literal::Bool($span))) }
+	| 'BOOL' { Ok(Expr::Literal(Literal::Boolean($span))) }
     ;
 %%
 
@@ -54,7 +54,7 @@ pub enum Expr {
 #[derive(Debug, Clone)]
 pub enum Literal {
 	Integer(Span),
-	Bool(Span)
+	Boolean(Span)
 }
 
 macro_rules! parse_as {
@@ -97,7 +97,7 @@ impl Literal {
 	pub fn span(&self) -> &Span {
 		match self {
 			Literal::Integer(span) => span,
-			Literal::Bool(span) => span,
+			Literal::Boolean(span) => span,
 		}
 	}
 	pub fn as_rpn(&self, lexer: DefaultLexerAlias) -> String {
@@ -107,14 +107,14 @@ impl Literal {
 	pub fn family(&self) -> &str {
 		match self {
 			Literal::Integer(_) => "integer",
-			Literal::Bool(_) => "bool"
+			Literal::Boolean(_) => "boolean"
 		}
 	}
 
 	parse_as! {many:
 		(as_u64, Integer, u64),
 		(as_i64, Integer, i64),
-		(as_bool, Bool, bool),
+		(as_bool, Boolean, bool),
 	}
 }
 
