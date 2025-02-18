@@ -21,7 +21,7 @@ Exponent -> Result<Expr, ()>:
 
 Factor -> Result<Expr, ()>:
       '(' Expr ')' { $2 }
-    | 'INT' { Ok(Expr::Literal(Literal::U64($span))) }
+    | 'INT' { Ok(Expr::Literal(Literal::Integer($span))) }
 	| 'BOOL' { Ok(Expr::Literal(Literal::Bool($span))) }
     ;
 %%
@@ -53,8 +53,7 @@ pub enum Expr {
 
 #[derive(Debug, Clone)]
 pub enum Literal {
-	U64(Span),
-	I64(Span),
+	Integer(Span),
 	Bool(Span)
 }
 
@@ -71,15 +70,16 @@ macro_rules! parse_as {
 						labels = vec![
 							label!(format!("tried to represent this value as a {}", stringify!($type)) => span)
 						],
-						"can't represent as {}: {e}",
+						"can't represent this {} family literal as {}: {e}",
+						self.family(),
 						stringify!($type)
 					)),
 				lit => Err(miette!(
 					labels = vec![
-						label!(format!("this parsed as a {}", lit.typename()) => *self.span())
+						label!(format!("this parsed as {}", lit.family()) => *self.span())
 					],
-					"incorrect type assumption during translation, attempted to treat {} `{}`",
-					lit.typename(),
+					"incorrect type assumption during translation, attempted to represent {} family literal `{}`",
+					lit.family(),
 					stringify!($fn_name)
 				))
 			}
@@ -96,26 +96,24 @@ impl Literal {
 	// should this be a trait?
 	pub fn span(&self) -> &Span {
 		match self {
-			Literal::U64(span) => span,
-			Literal::I64(span) => span,
+			Literal::Integer(span) => span,
 			Literal::Bool(span) => span,
 		}
 	}
 	pub fn as_rpn(&self, lexer: DefaultLexerAlias) -> String {
-		format!("{}({})", self.typename(), lexer.span_str(*self.span()))
+		format!("{}({})", self.family(), lexer.span_str(*self.span()))
 	}
 
-	pub fn typename(&self) -> &str {
+	pub fn family(&self) -> &str {
 		match self {
-			Literal::U64(_) => "u64",
-			Literal::I64(_) => "i64",
+			Literal::Integer(_) => "integer",
 			Literal::Bool(_) => "bool"
 		}
 	}
 
 	parse_as! {many:
-		(as_u64, U64, u64),
-		(as_i64, I64, i64),
+		(as_u64, Integer, u64),
+		(as_i64, Integer, i64),
 		(as_bool, Bool, bool),
 	}
 }
