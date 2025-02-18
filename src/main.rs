@@ -161,6 +161,9 @@ mod tests {
             gb: bool: "false"          => false,
             gc: bool: "true and false" => false,
             gd: bool: "true or false"  => true,
+            ha: i64 : "{1} + 2"        => 3,
+            hb: i64 : "{1} + {2}"      => 3,
+            hc: i64 : "{5; 8} + {2}"   => 10,
         }
     }
 
@@ -177,6 +180,15 @@ mod tests {
             cc: i64 : "30 / (2 * 3)"   => 5,
             #[ignore]
             da: i64 : "2 ^ 5 % 6"      => 2,
+        }
+    }
+
+    #[cfg(test)]
+    mod conditional {
+        use super::*;
+
+        eval_test! {
+            aa: i64 : "if true {2} else {1}" => 2,
         }
     }
 }
