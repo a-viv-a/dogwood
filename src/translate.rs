@@ -14,7 +14,7 @@ use cranelift::{
 };
 use lrlex::DefaultLexerTypes;
 use lrpar::NonStreamingLexer;
-use miette::{miette, Result};
+use miette::{IntoDiagnostic, Result};
 
 use crate::dogwood_y::{Expr, Literal, Op};
 use crate::label;
@@ -54,15 +54,19 @@ pub fn expr_to_function(
     builder.switch_to_block(block);
     let types = Types {
         i64: Type::int(64).unwrap(),
+        bool: Type::int(8).unwrap(),
     };
     let v = expr.as_cranelift(lexer, &mut builder, &types)?;
     builder.ins().return_(&[v]);
 
     builder.finalize();
 
-    module.define_function(func, &mut ctx).unwrap();
+    module
+        .define_function(func, &mut ctx)
+        .into_diagnostic()
+        .map_err(|err| err.wrap_err(format!("function clif:\n{}", ctx.func.display())))?;
     println!("{}", ctx.func.display());
-    verify_function(&ctx.func, module.isa().flags()).unwrap();
+    verify_function(&ctx.func, module.isa().flags()).into_diagnostic()?;
 
     module.finalize_definitions().unwrap();
 
@@ -74,6 +78,7 @@ pub fn expr_to_function(
 
 struct Types {
     i64: Type,
+    bool: Type,
 }
 
 trait ExprToCranelift {
@@ -121,7 +126,9 @@ impl ExprToCranelift for Expr {
                 Literal::Integer(_) => literal
                     .as_i64(lexer)
                     .map(|n| builder.ins().iconst(types.i64, n)),
-                Literal::Bool(_) => todo!(),
+                Literal::Bool(_) => literal
+                    .as_bool(lexer)
+                    .map(|b| builder.ins().iconst(types.bool, if b { 1 } else { 0 })),
             },
         }
     }
