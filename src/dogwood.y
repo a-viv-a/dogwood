@@ -1,9 +1,15 @@
 %start Expr
-%avoid_insert "INT"
+%avoid_insert "INT" "BOOL"
 %%
 Expr -> Result<Expr, ()>:
-      Expr '+' Term { Ok(Expr::Infix{ span: $span, lhs: Box::new($1?), op: Op::Add, rhs: Box::new($3?) }) }
-    | Expr '-' Term { Ok(Expr::Infix{ span: $span, lhs: Box::new($1?), op: Op::Sub, rhs: Box::new($3?) }) }
+      Expr 'and' Arith { Ok(Expr::Infix{ span: $span, lhs: Box::new($1?), op: Op::And, rhs: Box::new($3?) }) }
+    | Expr 'or' Arith { Ok(Expr::Infix{ span: $span, lhs: Box::new($1?), op: Op::Or, rhs: Box::new($3?) }) }
+    | Arith { $1 }
+    ;
+
+Arith -> Result<Expr, ()>:
+      Arith '+' Term { Ok(Expr::Infix{ span: $span, lhs: Box::new($1?), op: Op::Add, rhs: Box::new($3?) }) }
+    | Arith '-' Term { Ok(Expr::Infix{ span: $span, lhs: Box::new($1?), op: Op::Sub, rhs: Box::new($3?) }) }
     | Term { $1 }
     ;
 
@@ -20,7 +26,7 @@ Exponent -> Result<Expr, ()>:
 	;
 
 Factor -> Result<Expr, ()>:
-      '(' Expr ')' { $2 }
+      '(' Arith ')' { $2 }
     | 'INT' { Ok(Expr::Literal(Literal::Integer($span))) }
 	| 'BOOL' { Ok(Expr::Literal(Literal::Boolean($span))) }
     ;
@@ -35,7 +41,10 @@ pub enum Op {
 	Mul,
 	Div,
 	Pow,
-	Mod
+	Mod,
+
+	And,
+	Or
 }
 
 type DefaultLexerAlias<'a, 'b> = &'a dyn lrpar::NonStreamingLexer<'b, lrlex::DefaultLexerTypes<u32>>;

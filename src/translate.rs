@@ -83,6 +83,7 @@ impl Typed for Op {
     fn get_type(&self) -> Type {
         match self {
             Op::Add | Op::Sub | Op::Mul | Op::Div | Op::Mod => types::I64,
+            Op::And | Op::Or => types::I8,
             _ => todo!(),
         }
     }
@@ -132,6 +133,10 @@ impl InfixOpToCranelift for Op {
             Op::Div => Ok(builder.ins().sdiv(lhs, rhs)),
             // TODO: fix sign!
             Op::Mod => Ok(builder.ins().srem(lhs, rhs)),
+
+            // TODO: short circut!
+            Op::And => Ok(builder.ins().band(lhs, rhs)),
+            Op::Or => Ok(builder.ins().bor(lhs, rhs)),
             _ => todo!(),
         }
     }
