@@ -112,7 +112,12 @@ mod tests {
                 let lexerdef = dogwood_l::lexerdef();
                 let lexer = lexerdef.lexer($input);
                 let (res, errs) = dogwood_y::parse(&lexer);
+
+                errs.iter()
+                    .map(|e| lex_parse_error_to_miette(&lexer, e))
+                    .for_each(|m| eprintln!("{:?}", m.with_source_code(input)));
                 assert!(errs.is_empty());
+
                 let r = res.unwrap().unwrap();
                 println!("{}", r.as_rpn(&lexer));
                 assert_eq!(expr_to_function(&lexer, r).map_err(|e| e.with_source_code(input)).unwrap()(), $output)
@@ -129,12 +134,14 @@ mod tests {
             ba: "1 + 2"  => 3,
             ca: "3 * 5"  => 15,
             #[ignore]
-            da: "3 ** 2" => 9,
+            da: "3 ^ 2" => 9,
             ea: "10 % 2" => 0,
             eb: "10 % 7" => 3,
             fa: "-5"     => -5,
             fb: "-5 + 1" => -4,
             fc: "5 +-1"  => 4,
+
+            ga: "true and false"  => 4,
         }
     }
 
@@ -145,12 +152,12 @@ mod tests {
         eval_test! {
             aa: "3 + 7 * 2"        => 17,
             #[ignore]
-            ba: "3 + 5 ** 3 ** 3"  => 7450580596923828128,
+            ba: "3 + 5 ^ 3 ^ 3"  => 7450580596923828128,
             ca: "30 / 2 * 3"       => 45,
             cb: "(30 / 2) * 3"     => 45,
             cc: "30 / (2 * 3)"     => 5,
             #[ignore]
-            da: "2 ** 5 % 6"       => 2,
+            da: "2 ^ 5 % 6"       => 2,
         }
     }
 }

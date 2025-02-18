@@ -15,7 +15,7 @@ Term -> Result<Expr, ()>:
     ;
 
 Exponent -> Result<Expr, ()>:
-	  Factor '**' Exponent { Ok(Expr::Infix{ span: $span, lhs: Box::new($1?), op: Op::Pow, rhs: Box::new($3?) }) }
+	  Factor '^' Exponent { Ok(Expr::Infix{ span: $span, lhs: Box::new($1?), op: Op::Pow, rhs: Box::new($3?) }) }
 	| Factor { $1 }
 	;
 
