@@ -11,5 +11,5 @@ true|false "BOOL"
 \) ")"
 and "and"
 or "or"
-not "not"
+\! "!"
 [\t ]+ ;

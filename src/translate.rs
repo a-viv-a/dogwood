@@ -16,7 +16,7 @@ use lrlex::DefaultLexerTypes;
 use lrpar::NonStreamingLexer;
 use miette::{miette, Result};
 
-use crate::dogwood_y::{Expr, Op};
+use crate::dogwood_y::{Expr, Literal, Op};
 use crate::label;
 
 pub fn expr_to_function(
@@ -52,14 +52,17 @@ pub fn expr_to_function(
     builder.seal_block(block);
 
     builder.switch_to_block(block);
-    let v = expr.as_cranelift(lexer, &mut builder)?;
+    let types = Types {
+        i64: Type::int(64).unwrap(),
+    };
+    let v = expr.as_cranelift(lexer, &mut builder, &types)?;
     builder.ins().return_(&[v]);
 
     builder.finalize();
-    println!("{}", ctx.func.display());
-    verify_function(&ctx.func, module.isa().flags()).unwrap();
 
     module.define_function(func, &mut ctx).unwrap();
+    println!("{}", ctx.func.display());
+    verify_function(&ctx.func, module.isa().flags()).unwrap();
 
     module.finalize_definitions().unwrap();
 
@@ -69,11 +72,16 @@ pub fn expr_to_function(
     Ok(ptr)
 }
 
+struct Types {
+    i64: Type,
+}
+
 trait ExprToCranelift {
     fn as_cranelift(
         &self,
         lexer: &dyn NonStreamingLexer<DefaultLexerTypes<u32>>,
         builder: &mut FunctionBuilder,
+        types: &Types,
     ) -> Result<Value>;
 }
 
@@ -100,19 +108,21 @@ impl ExprToCranelift for Expr {
         &self,
         lexer: &dyn NonStreamingLexer<DefaultLexerTypes<u32>>,
         builder: &mut FunctionBuilder,
+        types: &Types,
     ) -> Result<Value> {
         // TODO: handle type correctly, actually choose the right asm instruction
         match self {
             Expr::Infix { span, lhs, op, rhs } => {
-                let lhs_val = lhs.as_cranelift(lexer, builder)?;
-                let rhs_val = rhs.as_cranelift(lexer, builder)?;
+                let lhs_val = lhs.as_cranelift(lexer, builder, types)?;
+                let rhs_val = rhs.as_cranelift(lexer, builder, types)?;
                 op.as_cranelift(builder, lhs_val, rhs_val)
             }
-            Expr::Literal(literal) => literal.as_i64(lexer).map(|n| {
-                builder
-                    .ins()
-                    .iconst(Type::int(64).unwrap(), i64::try_from(n).unwrap())
-            }),
+            Expr::Literal(literal) => match literal {
+                Literal::Integer(_) => literal
+                    .as_i64(lexer)
+                    .map(|n| builder.ins().iconst(types.i64, n)),
+                Literal::Bool(_) => todo!(),
+            },
         }
     }
 }
