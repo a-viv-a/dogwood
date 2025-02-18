@@ -22,7 +22,7 @@ use crate::label;
 pub fn expr_to_function(
     lexer: &dyn NonStreamingLexer<DefaultLexerTypes<u32>>,
     expr: Expr,
-) -> Result<extern "C" fn() -> u64> {
+) -> Result<extern "C" fn() -> i64> {
     let mut flag_builder = settings::builder();
     let isa_builder = cranelift::native::builder().unwrap_or_else(|msg| {
         panic!("host machine is not supported: {msg}");
@@ -64,7 +64,7 @@ pub fn expr_to_function(
     module.finalize_definitions().unwrap();
 
     let code = module.get_finalized_function(func);
-    let ptr = unsafe { mem::transmute::<_, extern "C" fn() -> u64>(code) };
+    let ptr = unsafe { mem::transmute::<_, extern "C" fn() -> i64>(code) };
 
     Ok(ptr)
 }
@@ -108,7 +108,7 @@ impl ExprToCranelift for Expr {
                 let rhs_val = rhs.as_cranelift(lexer, builder)?;
                 op.as_cranelift(builder, lhs_val, rhs_val)
             }
-            Expr::Literal(literal) => literal.as_u64(lexer).map(|n| {
+            Expr::Literal(literal) => literal.as_i64(lexer).map(|n| {
                 builder
                     .ins()
                     .iconst(Type::int(64).unwrap(), i64::try_from(n).unwrap())

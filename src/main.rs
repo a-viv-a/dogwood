@@ -115,7 +115,7 @@ mod tests {
                 assert!(errs.is_empty());
                 let r = res.unwrap().unwrap();
                 println!("{}", r.as_rpn(&lexer));
-                assert_eq!(expr_to_function(&lexer, r).unwrap()(), $output)
+                assert_eq!(expr_to_function(&lexer, r).map_err(|e| e.with_source_code(input)).unwrap()(), $output)
             }
         )+};
     }
@@ -132,6 +132,8 @@ mod tests {
             da: "3 ** 2" => 9,
             ea: "10 % 2" => 0,
             eb: "10 % 7" => 3,
+            fa: "-5" => -5,
+            fb: "-5 + 1" => -4,
         }
     }
 
