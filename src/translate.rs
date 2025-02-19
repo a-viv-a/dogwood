@@ -16,7 +16,7 @@ use lrlex::DefaultLexerTypes;
 use lrpar::NonStreamingLexer;
 use miette::{IntoDiagnostic, Result};
 
-use crate::dogwood_y::{BlockExpr, Expr, Literal, Op};
+use crate::dogwood_y::{BlockExpr, CondExpr, Expr, Literal, Op};
 use crate::label;
 
 pub fn expr_to_function(
@@ -101,6 +101,19 @@ impl Typed for Literal {
     }
 }
 
+impl Typed for BlockExpr {
+    fn get_type(&self) -> Type {
+        self.retval.as_ref().map(|rv| rv.get_type()).unwrap_or(UNIT)
+    }
+}
+
+impl Typed for CondExpr {
+    fn get_type(&self) -> Type {
+        // WARN: check for type cohesion!
+        self.then_br.get_type()
+    }
+}
+
 impl Typed for Expr {
     fn get_type(&self) -> Type {
         match self {
@@ -112,11 +125,8 @@ impl Typed for Expr {
             } => op.get_type(),
             Expr::Literal(literal) => literal.get_type(),
             // need type system or optional return...
-            Expr::BlockExpr(block) => block
-                .retval
-                .as_ref()
-                .map(|rv| rv.get_type())
-                .unwrap_or(UNIT),
+            Expr::BlockExpr(block) => block.get_type(),
+            Expr::CondExpr(cond_expr) => cond_expr.get_type(),
         }
     }
 }
@@ -175,26 +185,69 @@ impl ExprToCranelift for Expr {
                     // https://github.com/bytecodealliance/wasmtime/pull/5031
                     .map(|b| builder.ins().iconst(types::I8, if b { 1 } else { 0 })),
             },
-            Expr::BlockExpr(block_expr) => write_block_body(lexer, builder, block_expr),
+            Expr::BlockExpr(block_expr) => block_expr.as_cranelift(lexer, builder),
+            Expr::CondExpr(cond_expr) => cond_expr.as_cranelift(lexer, builder),
         }
     }
 }
 
-fn write_block_body(
-    lexer: &dyn NonStreamingLexer<DefaultLexerTypes<u32>>,
-    builder: &mut FunctionBuilder,
-    block_expr: &BlockExpr,
-) -> Result<Value> {
-    for expr in block_expr.stmts.iter() {
-        expr.as_cranelift(lexer, builder)?;
+impl ExprToCranelift for BlockExpr {
+    fn as_cranelift(
+        &self,
+        lexer: &dyn NonStreamingLexer<DefaultLexerTypes<u32>>,
+        builder: &mut FunctionBuilder,
+    ) -> Result<Value> {
+        for expr in self.stmts.iter() {
+            expr.as_cranelift(lexer, builder)?;
+        }
+
+        let retval = if let Some(retval) = &self.retval {
+            retval.as_cranelift(lexer, builder)?
+        } else {
+            // unit type, this poses a correctness problem until typing exists...
+            builder.ins().iconst(types::I8, 0)
+        };
+
+        Ok(retval)
     }
+}
 
-    let retval = if let Some(retval) = &block_expr.retval {
-        retval.as_cranelift(lexer, builder)?
-    } else {
-        // unit type, this poses a correctness problem until typing exists...
-        builder.ins().iconst(types::I8, 0)
-    };
+impl ExprToCranelift for CondExpr {
+    fn as_cranelift(
+        &self,
+        lexer: &dyn NonStreamingLexer<DefaultLexerTypes<u32>>,
+        builder: &mut FunctionBuilder,
+    ) -> Result<Value> {
+        let cond_val = self.cond.as_cranelift(lexer, builder)?;
 
-    Ok(retval)
+        let then_block = builder.create_block();
+        let else_block = builder.create_block();
+        let merge_block = builder.create_block();
+
+        builder.append_block_param(merge_block, self.get_type());
+
+        builder
+            .ins()
+            .brif(cond_val, then_block, &[], else_block, &[]);
+
+        builder.switch_to_block(then_block);
+        builder.seal_block(then_block);
+        let then_val = self.then_br.as_cranelift(lexer, builder)?;
+        builder.ins().jump(merge_block, &[then_val]);
+
+        builder.switch_to_block(else_block);
+        builder.seal_block(else_block);
+        // TODO: allow ommision, but don't return a type in that case? unclear
+        let else_val = self
+            .else_br
+            .as_ref()
+            .unwrap()
+            .as_cranelift(lexer, builder)?;
+        builder.ins().jump(merge_block, &[else_val]);
+
+        builder.switch_to_block(merge_block);
+        builder.seal_block(merge_block);
+
+        Ok(builder.block_params(merge_block)[0])
+    }
 }

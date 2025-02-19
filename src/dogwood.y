@@ -12,9 +12,19 @@ BlockExpr -> Result<BlockExpr, ()>:
 	| '{' ListOfStmts '}' { Ok(BlockExpr{ stmts: $2?, retval: None }) }
 	;
 
+CondExpr -> Result<CondExpr, ()>:
+	  'if' Expr BlockExpr 'else' BlockExpr { Ok(CondExpr { cond: $2?, then_br: $3?, else_br: Some($5?) }) }
+	| 'if' Expr BlockExpr { Ok(CondExpr { cond: $2?, then_br: $3?, else_br: None }) }
+	;
+
 Expr -> Result<Expr, ()>:
-      Expr 'and' Arith { Ok(Expr::Infix{ span: $span, lhs: Box::new($1?), op: Op::And, rhs: Box::new($3?) }) }
-    | Expr 'or' Arith { Ok(Expr::Infix{ span: $span, lhs: Box::new($1?), op: Op::Or, rhs: Box::new($3?) }) }
+      CondExpr { Ok(Expr::CondExpr(Box::new($1?))) }
+    | Logic { $1 }
+    ;
+
+Logic -> Result<Expr, ()>:
+      Logic 'and' Arith { Ok(Expr::Infix{ span: $span, lhs: Box::new($1?), op: Op::And, rhs: Box::new($3?) }) }
+    | Logic 'or' Arith { Ok(Expr::Infix{ span: $span, lhs: Box::new($1?), op: Op::Or, rhs: Box::new($3?) }) }
     | Arith { $1 }
     ;
 
@@ -71,6 +81,7 @@ pub enum Expr {
 	},
 	Literal(Literal),
 	BlockExpr(Box<BlockExpr>),
+	CondExpr(Box<CondExpr>),
 }
 
 #[derive(Debug, Clone)]
@@ -83,6 +94,13 @@ pub enum Literal {
 pub struct BlockExpr {
 	pub stmts: Vec<Expr>,
 	pub retval: Option<Expr>
+}
+
+#[derive(Debug, Clone)]
+pub struct CondExpr {
+	pub cond: Expr,
+	pub then_br: BlockExpr,
+	pub else_br: Option<BlockExpr>
 }
 
 // utils
@@ -162,13 +180,15 @@ impl Expr {
 			Expr::Infix {span, lhs: _, op: _, rhs: _} => span,
 			Expr::Literal(literal) => literal.span(),
 			Expr::BlockExpr(block) => todo!(),
+			Expr::CondExpr(cond_expr) => todo!(),
 		}
 	}
 	pub fn as_rpn(&self, lexer: DefaultLexerAlias) -> String {
 		match self {
 			Expr::Infix {span: _, lhs, rhs, op} => format!("{} {} {op:?}", lhs.as_rpn(lexer), rhs.as_rpn(lexer)),
 			Expr::Literal(literal) => literal.as_rpn(lexer),
-			Expr::BlockExpr(block) => block.as_rpn(lexer)
+			Expr::BlockExpr(block) => block.as_rpn(lexer),
+			Expr::CondExpr(cond_expr) => cond_expr.as_rpn(lexer),
 		}
 	}
 }
@@ -186,5 +206,17 @@ impl BlockExpr {
 			}
 			None => format!("{{ {stmts_rpn}; }}")
 		}
+	}
+}
+
+impl CondExpr {
+	pub fn as_rpn(&self, lexer: DefaultLexerAlias) -> String {
+		format!("if {} then {}{}",
+			self.cond.as_rpn(lexer),
+			self.then_br.as_rpn(lexer),
+			self.else_br.as_ref().map(|br|
+				format!(" else {}", br.as_rpn(lexer))).unwrap_or_else(|| "".to_string()
+			)
+		)
 	}
 }
