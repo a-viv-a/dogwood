@@ -1,6 +1,10 @@
 %start Expr
 %avoid_insert "INT" "BOOL"
 %%
+BlockExpr -> Result<BlockExpr, ()>:
+	  '{' Expr '}' { Ok(BlockExpr{ stmts: vec![], retval: Some($2?) }) }
+	;
+
 Expr -> Result<Expr, ()>:
       Expr 'and' Arith { Ok(Expr::Infix{ span: $span, lhs: Box::new($1?), op: Op::And, rhs: Box::new($3?) }) }
     | Expr 'or' Arith { Ok(Expr::Infix{ span: $span, lhs: Box::new($1?), op: Op::Or, rhs: Box::new($3?) }) }
@@ -27,6 +31,7 @@ Exponent -> Result<Expr, ()>:
 
 Factor -> Result<Expr, ()>:
       '(' Arith ')' { $2 }
+	| BlockExpr { Ok(Expr::BlockExpr(Box::new($1?))) }
     | 'INT' { Ok(Expr::Literal(Literal::Integer($span))) }
 	| 'BOOL' { Ok(Expr::Literal(Literal::Boolean($span))) }
     ;
@@ -57,7 +62,8 @@ pub enum Expr {
 		op: Op,
 		rhs: Box<Expr>,
 	},
-	Literal(Literal)
+	Literal(Literal),
+	BlockExpr(Box<BlockExpr>),
 }
 
 #[derive(Debug, Clone)]
@@ -65,6 +71,22 @@ pub enum Literal {
 	Integer(Span),
 	Boolean(Span)
 }
+
+#[derive(Debug, Clone)]
+pub struct BlockExpr {
+	pub stmts: Vec<Expr>,
+	pub retval: Option<Expr>
+}
+
+// utils
+
+fn flatten<T>(lhs: Result<Vec<T>, ()>, rhs: Result<T, ()>) -> Result<Vec<T>, ()> {
+    let mut flt = lhs?;
+    flt.push(rhs?);
+    Ok(flt)
+}
+
+// impls
 
 macro_rules! parse_as {
 	($fn_name:ident, $literal:ident, $type:ty) => {
@@ -132,12 +154,30 @@ impl Expr {
 		match self {
 			Expr::Infix {span, lhs: _, op: _, rhs: _} => span,
 			Expr::Literal(literal) => literal.span(),
+			Expr::BlockExpr(block) => todo!(),
 		}
 	}
 	pub fn as_rpn(&self, lexer: DefaultLexerAlias) -> String {
 		match self {
 			Expr::Infix {span: _, lhs, rhs, op} => format!("{} {} {op:?}", lhs.as_rpn(lexer), rhs.as_rpn(lexer)),
 			Expr::Literal(literal) => literal.as_rpn(lexer),
+			Expr::BlockExpr(block) => block.as_rpn(lexer)
+		}
+	}
+}
+
+impl BlockExpr {
+	pub fn as_rpn(&self, lexer: DefaultLexerAlias) -> String {
+		let stmts_rpn = self.stmts.iter().map(|stmt| stmt.as_rpn(lexer)).collect::<Vec<_>>().join("; ");
+		match &self.retval {
+			Some(retval) => {
+				if self.stmts.is_empty() {
+					format!("{{ return {}; }}", retval.as_rpn(lexer))
+				} else {
+					format!("{{ {stmts_rpn}; return {}; }}", retval.as_rpn(lexer))
+				}
+			}
+			None => format!("{{ {stmts_rpn}; }}")
 		}
 	}
 }

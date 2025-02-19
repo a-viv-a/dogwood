@@ -4,7 +4,7 @@ use cranelift::codegen::{verify_function, Context};
 use cranelift::frontend::{FuncInstBuilder, FunctionBuilder, FunctionBuilderContext};
 use cranelift::jit::{JITBuilder, JITModule};
 use cranelift::module::{default_libcall_names, Linkage, Module};
-use cranelift::prelude::{settings, Type, Value};
+use cranelift::prelude::{settings, Block, Type, Value};
 use cranelift::{
     codegen::{
         ir::{types, AbiParam, Function, Signature, UserFuncName},
@@ -16,7 +16,7 @@ use lrlex::DefaultLexerTypes;
 use lrpar::NonStreamingLexer;
 use miette::{IntoDiagnostic, Result};
 
-use crate::dogwood_y::{Expr, Literal, Op};
+use crate::dogwood_y::{BlockExpr, Expr, Literal, Op};
 use crate::label;
 
 pub fn expr_to_function(
@@ -74,6 +74,9 @@ pub fn expr_to_function(
     Ok(ptr)
 }
 
+// TODO: remove, type for no value...
+const UNIT: Type = types::I8;
+
 // TODO: delete this in favor of actual type annotation and inferrence system
 trait Typed {
     fn get_type(&self) -> Type;
@@ -108,6 +111,12 @@ impl Typed for Expr {
                 rhs: _,
             } => op.get_type(),
             Expr::Literal(literal) => literal.get_type(),
+            // need type system or optional return...
+            Expr::BlockExpr(block) => block
+                .retval
+                .as_ref()
+                .map(|rv| rv.get_type())
+                .unwrap_or(UNIT),
         }
     }
 }
@@ -166,6 +175,36 @@ impl ExprToCranelift for Expr {
                     // https://github.com/bytecodealliance/wasmtime/pull/5031
                     .map(|b| builder.ins().iconst(types::I8, if b { 1 } else { 0 })),
             },
+            Expr::BlockExpr(block_expr) => write_block(lexer, builder, block_expr).map(|b| b.1),
         }
     }
+}
+
+fn write_block(
+    lexer: &dyn NonStreamingLexer<DefaultLexerTypes<u32>>,
+    builder: &mut FunctionBuilder,
+    block_expr: &BlockExpr,
+) -> Result<(Block, Value)> {
+    let old_block = builder.current_block();
+
+    let block = builder.create_block();
+    builder.switch_to_block(block);
+    builder.seal_block(block);
+
+    for expr in block_expr.stmts.iter() {
+        expr.as_cranelift(lexer, builder)?;
+    }
+
+    let retval = if let Some(retval) = &block_expr.retval {
+        retval.as_cranelift(lexer, builder)?
+    } else {
+        // unit type, this poses a correctness problem until typing exists...
+        builder.ins().iconst(types::I8, 0)
+    };
+
+    if let Some(old_block) = old_block {
+        builder.switch_to_block(old_block);
+    }
+
+    Ok((block, retval))
 }
