@@ -1,8 +1,15 @@
 %start Expr
 %avoid_insert "INT" "BOOL"
 %%
+ListOfStmts -> Result<Vec<Expr>, ()>:
+	  Expr ';' { Ok(vec![$1?]) }
+	| ListOfStmts Expr ';' { flatten($1, $2) }
+	;
+
 BlockExpr -> Result<BlockExpr, ()>:
 	  '{' Expr '}' { Ok(BlockExpr{ stmts: vec![], retval: Some($2?) }) }
+	| '{' ListOfStmts Expr '}' { Ok(BlockExpr{ stmts: $2?, retval: Some($3?) }) }
+	| '{' ListOfStmts '}' { Ok(BlockExpr{ stmts: $2?, retval: None }) }
 	;
 
 Expr -> Result<Expr, ()>:

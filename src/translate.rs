@@ -175,22 +175,16 @@ impl ExprToCranelift for Expr {
                     // https://github.com/bytecodealliance/wasmtime/pull/5031
                     .map(|b| builder.ins().iconst(types::I8, if b { 1 } else { 0 })),
             },
-            Expr::BlockExpr(block_expr) => write_block(lexer, builder, block_expr).map(|b| b.1),
+            Expr::BlockExpr(block_expr) => write_block_body(lexer, builder, block_expr),
         }
     }
 }
 
-fn write_block(
+fn write_block_body(
     lexer: &dyn NonStreamingLexer<DefaultLexerTypes<u32>>,
     builder: &mut FunctionBuilder,
     block_expr: &BlockExpr,
-) -> Result<(Block, Value)> {
-    let old_block = builder.current_block();
-
-    let block = builder.create_block();
-    builder.switch_to_block(block);
-    builder.seal_block(block);
-
+) -> Result<Value> {
     for expr in block_expr.stmts.iter() {
         expr.as_cranelift(lexer, builder)?;
     }
@@ -202,9 +196,5 @@ fn write_block(
         builder.ins().iconst(types::I8, 0)
     };
 
-    if let Some(old_block) = old_block {
-        builder.switch_to_block(old_block);
-    }
-
-    Ok((block, retval))
+    Ok(retval)
 }

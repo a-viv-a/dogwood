@@ -161,9 +161,10 @@ mod tests {
             gb: bool: "false"          => false,
             gc: bool: "true and false" => false,
             gd: bool: "true or false"  => true,
-            ha: i64 : "{1} + 2"        => 3,
+            ha: i64 : "2 + {1}"        => 3,
             hb: i64 : "{1} + {2}"      => 3,
             hc: i64 : "{5; 8} + {2}"   => 10,
+            hd: i64 : "{1;1;8} + {2}"  => 10,
         }
     }
 
