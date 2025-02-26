@@ -1,6 +1,7 @@
 #![allow(clippy::unnecessary_wraps)]
 
 mod error;
+mod raise;
 mod stackhashmap;
 mod translate;
 
@@ -8,6 +9,8 @@ use std::io::{self, BufRead, Write};
 
 use lrlex::lrlex_mod;
 use lrpar::lrpar_mod;
+use raise::raise_expr;
+use stackhashmap::StackHashMap;
 use translate::expr_to_function;
 
 use crate::error::lex_parse_error_to_miette;
@@ -40,6 +43,10 @@ fn main() {
                     .for_each(|m| eprintln!("{:?}", m.with_source_code(l.to_owned())));
                 if let Some(Ok(r)) = res {
                     println!("{}", r.as_rpn(&lexer));
+                    println!(
+                        "{:#?}",
+                        raise_expr(&lexer, r.clone(), &mut StackHashMap::new(), &mut 0)
+                    );
                     match expr_to_function(&lexer, r.clone()) {
                         Ok(f) => println!("Result: {}", f()),
                         Err(err) => {
@@ -154,6 +161,10 @@ mod tests {
             da: i64 : "3 ^ 2"          => 9,
             ea: i64 : "10 % 2"         => 0,
             eb: i64 : "10 % 7"         => 3,
+            #[ignore]
+            ec: i64 : "-10 % 7"        => 3,
+            #[ignore]
+            ed: i64 : "10 % -7"        => -3,
             fa: i64 : "-5"             => -5,
             fb: i64 : "-5 + 1"         => -4,
             fc: i64 : "5 +-1"          => 4,

@@ -124,6 +124,7 @@ impl Typed for Expr {
                 rhs: _,
             } => op.get_type(),
             Expr::Literal(literal) => literal.get_type(),
+            Expr::Ident(ident) => todo!(),
             // need type system or optional return...
             Expr::BlockExpr(block) => block.get_type(),
             Expr::CondExpr(cond_expr) => cond_expr.get_type(),
@@ -215,6 +216,7 @@ impl ExprToCranelift for Expr {
                     // https://github.com/bytecodealliance/wasmtime/pull/5031
                     .map(|b| builder.ins().iconst(types::I8, if b { 1 } else { 0 })),
             },
+            Expr::Ident(ident) => todo!(),
             Expr::BlockExpr(block_expr) => block_expr.as_cranelift(lexer, builder),
             Expr::CondExpr(cond_expr) => cond_expr.as_cranelift(lexer, builder),
         }

@@ -51,6 +51,7 @@ Factor -> Result<Expr, ()>:
 	| BlockExpr { Ok(Expr::BlockExpr(Box::new($1?))) }
     | 'INT' { Ok(Expr::Literal(Literal::Integer($span))) }
 	| 'BOOL' { Ok(Expr::Literal(Literal::Boolean($span))) }
+	| 'IDENT' { Ok(Expr::Ident(Ident { span: $span })) }
     ;
 %%
 
@@ -80,6 +81,7 @@ pub enum Expr {
 		rhs: Box<Expr>,
 	},
 	Literal(Literal),
+	Ident(Ident),
 	BlockExpr(Box<BlockExpr>),
 	CondExpr(Box<CondExpr>),
 }
@@ -88,6 +90,11 @@ pub enum Expr {
 pub enum Literal {
 	Integer(Span),
 	Boolean(Span)
+}
+
+#[derive(Debug, Clone)]
+pub struct Ident {
+	pub span: Span,
 }
 
 #[derive(Debug, Clone)]
@@ -174,11 +181,24 @@ impl Literal {
 	}
 }
 
+impl Ident {
+	pub fn span(&self) -> &Span {
+		&self.span
+	}
+	pub fn as_str<'a, 'b>(&self, lexer: DefaultLexerAlias<'a, 'b>) -> &'b str {
+		lexer.span_str(self.span)
+	}
+	pub fn as_rpn(&self, lexer: DefaultLexerAlias) -> String {
+		format!("id({})", lexer.span_str(*self.span()))
+	}
+}
+
 impl Expr {
 	pub fn span(&self) -> &Span {
 		match self {
 			Expr::Infix {span, lhs: _, op: _, rhs: _} => span,
 			Expr::Literal(literal) => literal.span(),
+			Expr::Ident(ident) => ident.span(),
 			Expr::BlockExpr(block) => todo!(),
 			Expr::CondExpr(cond_expr) => todo!(),
 		}
@@ -187,6 +207,7 @@ impl Expr {
 		match self {
 			Expr::Infix {span: _, lhs, rhs, op} => format!("{} {} {op:?}", lhs.as_rpn(lexer), rhs.as_rpn(lexer)),
 			Expr::Literal(literal) => literal.as_rpn(lexer),
+			Expr::Ident(ident) => ident.as_rpn(lexer),
 			Expr::BlockExpr(block) => block.as_rpn(lexer),
 			Expr::CondExpr(cond_expr) => cond_expr.as_rpn(lexer),
 		}

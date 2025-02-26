@@ -1,42 +1,54 @@
 use std::collections::HashMap;
 
 #[derive(Debug)]
-struct StackHashMap<K, V> {
+pub struct StackHashMap<K, V> {
     data: Vec<HashMap<K, V>>,
 }
 
-impl<K: Eq + std::hash::Hash, V> StackHashMap<K, V> {
-    fn new() -> Self {
+impl<K: Eq + std::hash::Hash, V: Clone> StackHashMap<K, V> {
+    pub fn new() -> Self {
         StackHashMap {
             // TODO: is non empty data an invarient? if not, should this start empty?
             data: vec![HashMap::new()],
         }
     }
 
-    fn height(&self) -> usize {
+    pub fn height(&self) -> usize {
         self.data.len()
     }
 
-    fn push_frame(&mut self) {
+    pub fn push_frame(&mut self) {
         self.data.push(HashMap::new())
     }
 
-    fn pop_frame(&mut self) {
+    pub fn pop_frame(&mut self) {
         self.data.pop();
-        // TODO: do we want this invarient?
         assert!(!self.data.is_empty());
     }
 
-    fn get(&self, k: &K) -> Option<&V> {
+    pub fn get(&self, k: &K) -> Option<&V> {
         self.data.iter().rev().flat_map(|hm| hm.get(k)).next()
     }
 
-    fn insert(&mut self, k: K, v: V) -> Option<V> {
-        // TODO: if not being empty is an invarient we could unwrap / expect here
-        self.data.last_mut().and_then(|hm| hm.insert(k, v))
+    pub fn insert(&mut self, k: K, v: V) -> Option<V> {
+        self.data
+            .last_mut()
+            .expect("data is never empty")
+            .insert(k, v)
     }
 
-    fn scope<F: FnOnce(&mut Self)>(&mut self, f: F) {
+    pub fn get_or_insert(&mut self, k: K, v_fn: impl FnOnce() -> V) -> V {
+        if let Some(v) = self.get(&k) {
+            return v.clone();
+        }
+
+        let v = v_fn();
+
+        self.insert(k, v.clone());
+        return v;
+    }
+
+    pub fn scope<F: FnOnce(&mut Self)>(&mut self, f: F) {
         let prev_height = self.height();
         self.push_frame();
         f(self);

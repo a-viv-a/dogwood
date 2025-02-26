@@ -1,0 +1,257 @@
+use std::{cell::RefCell, iter, rc::Rc};
+
+use lrlex::DefaultLexerTypes;
+use lrpar::{NonStreamingLexer, Span};
+use miette::{miette, Error, Result};
+
+use itertools::{Either, Itertools};
+
+use crate::{
+    dogwood_y::{Expr, Literal, Op},
+    stackhashmap::StackHashMap,
+};
+
+trait Unify: Sized {
+    fn unify(&self, other: &Self) -> Option<Self>;
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NumTy {
+    I64,
+    Infer,
+}
+
+impl Unify for NumTy {
+    fn unify(&self, other: &NumTy) -> Option<NumTy> {
+        match (self, other) {
+            (ty, NumTy::Infer) => Some(*ty),
+            (NumTy::Infer, ty) => Some(*ty),
+
+            (l, r) if l == r => Some(*l),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Ty {
+    Num(NumTy),
+    Bool,
+    /// The type of "nothing", an empty tuple
+    Unit,
+    Infer,
+}
+
+impl Unify for Ty {
+    fn unify(&self, other: &Ty) -> Option<Ty> {
+        match (self, other) {
+            (Ty::Num(l), Ty::Num(r)) => Some(Ty::Num(l.unify(r)?)),
+
+            (ty, Ty::Infer) => Some(*ty),
+            (Ty::Infer, ty) => Some(*ty),
+
+            (l, r) if l == r => Some(*l),
+            _ => None,
+        }
+    }
+}
+
+pub trait Tyable {
+    fn ty(&self) -> Ty;
+}
+
+#[derive(Clone, Debug)]
+pub struct BlockNode {
+    exprs: Vec<Node>,
+    ty: Ty,
+}
+
+#[derive(Clone, Debug)]
+pub struct CondNode {
+    cond: Box<Node>,
+    then_node: BlockNode,
+    else_node: Option<BlockNode>,
+}
+
+#[derive(Clone, Debug)]
+pub enum Node {
+    Ident(Span, usize),
+    Infix(Span, Ty, Box<Node>, Op, Box<Node>),
+    Block(BlockNode),
+    Cond(CondNode),
+    Lit(LitNode),
+}
+
+#[derive(Clone, Debug)]
+pub enum LitNode {
+    Bool(Span),
+    Num(Span, NumTy),
+}
+
+impl Tyable for Node {
+    fn ty(&self) -> Ty {
+        match self {
+            Node::Ident(_, _) => Ty::Infer,
+            Node::Infix(_, ty, _, _, _) => *ty,
+            Node::Block(block) => block.ty(),
+            Node::Cond(cond) => cond.ty(),
+            Node::Lit(lit) => lit.ty(),
+        }
+    }
+}
+
+impl Tyable for LitNode {
+    fn ty(&self) -> Ty {
+        match self {
+            LitNode::Bool(_) => Ty::Bool,
+            LitNode::Num(_, num_ty) => Ty::Num(*num_ty),
+        }
+    }
+}
+
+impl Tyable for BlockNode {
+    fn ty(&self) -> Ty {
+        self.ty
+    }
+}
+
+impl Tyable for CondNode {
+    fn ty(&self) -> Ty {
+        self.then_node
+            .ty()
+            .unify(&self.else_node.as_ref().map(|n| n.ty()).unwrap_or(Ty::Unit))
+            .unwrap_or(Ty::Unit)
+    }
+}
+
+// type Scope = Rc<RefCell<StackHashMap<&'input str, (usize, Ty)>>>;
+
+macro_rules! must_be {
+    ($t:ident, $n:expr) => {
+        match $n {
+            Node::$t(e) => e,
+            _ => panic!(
+                "must be was incorrect: {} was not {}",
+                stringify!($n),
+                stringify!($t)
+            ),
+        }
+    };
+}
+
+pub fn raise_expr<'input>(
+    lexer: &dyn NonStreamingLexer<'input, DefaultLexerTypes<u32>>,
+    expr: Expr,
+    scope: &mut StackHashMap<&'input str, (usize, Ty)>,
+    nth: &mut usize,
+) -> Result<Node> {
+    match expr {
+        Expr::Literal(Literal::Boolean(span)) => Ok(Node::Lit(LitNode::Bool(span))),
+        // TODO: mark as infer!
+        Expr::Literal(Literal::Integer(span)) => Ok(Node::Lit(LitNode::Num(span, NumTy::I64))),
+        Expr::Ident(ident) => {
+            let str_ident = ident.as_str(lexer);
+            let (id, _) = scope.get_or_insert(&str_ident, || {
+                *nth += 1;
+                (*nth, Ty::Infer)
+            });
+
+            Ok(Node::Ident(ident.span, id))
+        }
+        Expr::Infix { span, lhs, op, rhs } => {
+            let lhn = raise_expr(lexer, *lhs, scope, nth)?;
+            let rhn = raise_expr(lexer, *rhs, scope, nth)?;
+
+            match op {
+                Op::Add | Op::Sub | Op::Mul | Op::Div | Op::Pow | Op::Mod => {
+                    if let Some(ty) = lhn.ty().unify(&rhn.ty()) {
+                        Ok(Node::Infix(span, ty, Box::new(lhn), op, Box::new(rhn)))
+                    } else {
+                        Err(miette! {
+                            "can't unify these types"
+                        })
+                    }
+                }
+
+                Op::And | Op::Or => {
+                    if let Some(ty) = lhn.ty().unify(&rhn.ty()).and_then(|t| t.unify(&Ty::Bool)) {
+                        Ok(Node::Infix(span, ty, Box::new(lhn), op, Box::new(rhn)))
+                    } else {
+                        Err(miette! {
+                            "can't unify these types with bool"
+                        })
+                    }
+                }
+            }
+        }
+        Expr::BlockExpr(block_expr) => {
+            // TODO: clean this up
+            let (exprs, ty) = if let Some(retval) = block_expr.retval {
+                let (exprs, errs) = raise_exprs(
+                    lexer,
+                    block_expr.stmts.into_iter().chain(iter::once(retval)),
+                    scope,
+                    nth,
+                );
+                if !errs.is_empty() {
+                    return Err(errs.into_iter().next().unwrap());
+                }
+                let ty = exprs.last().unwrap().ty();
+                (exprs, ty)
+            } else {
+                let (exprs, errs) = raise_exprs(lexer, block_expr.stmts.into_iter(), scope, nth);
+
+                if !errs.is_empty() {
+                    return Err(errs.into_iter().next().unwrap());
+                }
+                (exprs, Ty::Unit)
+            };
+
+            Ok(Node::Block(BlockNode { exprs, ty }))
+        }
+        Expr::CondExpr(cond_expr) => {
+            let cond = Box::new(raise_expr(lexer, cond_expr.cond, scope, nth)?);
+            assert!(cond.ty().unify(&Ty::Bool).is_some());
+            let then_node = must_be!(
+                Block,
+                raise_expr(
+                    lexer,
+                    Expr::BlockExpr(Box::new(cond_expr.then_br)),
+                    scope,
+                    nth,
+                )?
+            );
+            let else_node = if let Some(else_br) = cond_expr.else_br {
+                Some(must_be!(
+                    Block,
+                    raise_expr(lexer, Expr::BlockExpr(Box::new(else_br)), scope, nth)?
+                ))
+            } else {
+                None
+            };
+
+            Ok(Node::Cond(CondNode {
+                cond,
+                then_node,
+                else_node,
+            }))
+        }
+    }
+}
+
+pub fn raise_exprs<'input>(
+    lexer: &dyn NonStreamingLexer<'input, DefaultLexerTypes<u32>>,
+    exprs: impl Iterator<Item = Expr>,
+    scope: &mut StackHashMap<&'input str, (usize, Ty)>,
+    nth: &mut usize,
+) -> (Vec<Node>, Vec<Error>) {
+    let mut nodes = vec![];
+    let mut errs = vec![];
+    for expr in exprs {
+        match raise_expr(lexer, expr, scope, nth) {
+            Ok(node) => nodes.push(node),
+            Err(err) => errs.push(err),
+        }
+    }
+    (nodes, errs)
+}
