@@ -1,4 +1,9 @@
-use std::{cell::RefCell, iter, rc::Rc};
+use std::{
+    cell::RefCell,
+    fmt::{Display, Pointer},
+    iter,
+    rc::Rc,
+};
 
 use lrlex::DefaultLexerTypes;
 use lrpar::{NonStreamingLexer, Span};
@@ -21,6 +26,15 @@ pub enum NumTy {
     Infer,
 }
 
+impl Display for NumTy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            NumTy::I64 => write!(f, "i64"),
+            NumTy::Infer => write!(f, "_"),
+        }
+    }
+}
+
 impl Unify for NumTy {
     fn unify(&self, other: &NumTy) -> Option<NumTy> {
         match (self, other) {
@@ -40,6 +54,17 @@ pub enum Ty {
     /// The type of "nothing", an empty tuple
     Unit,
     Infer,
+}
+
+impl Display for Ty {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Bool => write!(f, "bool"),
+            Self::Num(n) => write!(f, "num_{n}"),
+            Self::Unit => write!(f, "()"),
+            Self::Infer => write!(f, "_"),
+        }
+    }
 }
 
 impl Unify for Ty {
@@ -86,6 +111,25 @@ pub enum Node {
 pub enum LitNode {
     Bool(Span),
     Num(Span, NumTy),
+}
+
+impl Node {
+    pub fn as_rpn(&self, lexer: &dyn NonStreamingLexer<DefaultLexerTypes<u32>>) -> String {
+        let repr = match self {
+            Node::Infix(span, _, lh, op, rh) => {
+                format!("{} {} {op}", lh.as_rpn(lexer), rh.as_rpn(lexer))
+            }
+            Node::Block(block_node) => todo!(),
+            Node::Cond(cond_node) => todo!(),
+            Node::Ident(span, n) => {
+                format!("`{}`:{n}", lexer.span_str(*span))
+            }
+            Node::Lit(LitNode::Bool(span)) | Node::Lit(LitNode::Num(span, _)) => {
+                lexer.span_str(*span).to_string()
+            }
+        };
+        format!("({} {repr})", self.ty())
+    }
 }
 
 impl Tyable for Node {

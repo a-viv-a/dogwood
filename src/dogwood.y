@@ -70,6 +70,23 @@ pub enum Op {
 	Or
 }
 
+impl std::fmt::Display for Op {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+			Self::Add => write!(f, "+"),
+			Self::Sub => write!(f, "-"),
+			Self::Mul => write!(f, "*"),
+			Self::Div => write!(f, "/"),
+			Self::Pow => write!(f, "^"),
+			Self::Mod => write!(f, "%"),
+
+			Self::And => write!(f, "and"),
+			Self::Or => write!(f, "or")
+        }
+    }
+}
+
+
 type DefaultLexerAlias<'a, 'b> = &'a dyn lrpar::NonStreamingLexer<'b, lrlex::DefaultLexerTypes<u32>>;
 
 #[derive(Debug, Clone)]

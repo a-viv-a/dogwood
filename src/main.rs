@@ -44,8 +44,10 @@ fn main() {
                 if let Some(Ok(r)) = res {
                     println!("{}", r.as_rpn(&lexer));
                     println!(
-                        "{:#?}",
+                        "{}",
                         raise_expr(&lexer, r.clone(), &mut StackHashMap::new(), &mut 0)
+                            .unwrap()
+                            .as_rpn(&lexer)
                     );
                     match expr_to_function(&lexer, r.clone()) {
                         Ok(f) => println!("Result: {}", f()),
