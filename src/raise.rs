@@ -428,15 +428,14 @@ pub fn raise_expr<'input>(
             let val = raise_expr(lexer, *val, scope, nth)?;
             let ident_str = ident.as_str(lexer);
 
+            *nth += 1;
+            let id = *nth;
+
+            scope.insert(ident_str, (id, val.ty()));
+
             let ident = Ident {
                 span: ident.span,
-                // TODO: this prevents shadowing with new type... fix that!
-                id: scope
-                    .get_or_insert(ident_str, || {
-                        *nth += 1;
-                        (*nth, val.ty())
-                    })
-                    .0,
+                id,
             };
 
             Ok(Node::Let {

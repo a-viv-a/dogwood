@@ -205,4 +205,16 @@ mod tests {
             ab: i64 : "if false { if true {0}else{0}; 5 } else {1}" => 1,
         }
     }
+
+    #[cfg(test)]
+    mod variables {
+        use super::*;
+
+        eval_test! {
+            aa: i64  : "{ let a = 2; a }"                    => 2,
+            ab: i64  : "{ let a = 2; let b = 3 + a; b }"     => 5,
+            ac: i64  : "{ let a = 2; let b = 3 + a; b * a }" => 10,
+            ba: bool : "{ let v = 10; let v = true; v }"     => true,
+        }
+    }
 }
