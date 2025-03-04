@@ -203,7 +203,7 @@ impl AsCranelift for Node {
                     // https://github.com/bytecodealliance/wasmtime/pull/5031
                     .map(|b| builder.ins().iconst(types::I8, if b { 1 } else { 0 })),
             },
-            Self::Ident(ident) => builder
+            Self::Ident(_, ident) => builder
                 .try_use_var(ident.var())
                 .into_diagnostic()
                 .wrap_err_with(|| {
@@ -214,7 +214,35 @@ impl AsCranelift for Node {
                     }
                 }),
             Self::Let { ident, val, .. } => {
-                todo!()
+                builder
+                    .try_declare_var(
+                        ident.var(),
+                        val.ty().repr().ok_or_else(|| {
+                            miette! {
+                                labels = vec![
+                                    label!("var name" => ident.span()),
+                                    label!(val.ty() => val.span()),
+                                ],
+                                help = format!("{} does not have a concrete representation", val.ty()),
+                                "can't represent `{}`'s value in clir",
+                                lexer.span_str(ident.span)
+                            }
+                        })?,
+                    )
+                    .into_diagnostic()?;
+
+                let clir_val = val.as_cranelift(lexer, builder)?;
+                builder.try_def_var(ident.var(), clir_val).map_err(|e| {
+                    miette! {
+                        labels = vec![
+                            label!("var name" => ident.span()),
+                            label!("value" => val.span()),
+                        ],
+                        "failed to define"
+                    }
+                })?;
+                // TODO: don't mandate a return value
+                Ok(builder.ins().iconst(types::I8, 0))
             }
             Self::Block(block) => block.as_cranelift(lexer, builder),
             Self::Cond(cond) => cond_expr_builder(

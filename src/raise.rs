@@ -138,7 +138,8 @@ pub struct Ident {
 
 #[derive(Clone, Debug)]
 pub enum Node {
-    Ident(Ident),
+    // TODO: remove this Ty! its gross
+    Ident(Ty, Ident),
     Infix {
         span: Span,
         ty: Ty,
@@ -171,7 +172,7 @@ impl Spanning for Ident {
 impl Spanning for Node {
     fn span(&self) -> Span {
         match self {
-            Node::Ident(ident) => ident.span(),
+            Node::Ident(_, ident) => ident.span(),
             Node::Infix { span, .. } => *span,
             Node::Let { span, .. } => *span,
             Node::Block(block_node) => block_node.span(),
@@ -285,7 +286,7 @@ impl Node {
                         .unwrap_or_else(|| "()".to_string())
                 )
             }
-            Node::Ident(ident) => ident.as_rpn(lexer),
+            Node::Ident(_, ident) => ident.as_rpn(lexer),
             Node::Lit(LitNode::Bool(span)) | Node::Lit(LitNode::Num(span, _)) => {
                 lexer.span_str(*span).to_string()
             }
@@ -311,7 +312,7 @@ impl BlockNode {
 impl Tyable for Node {
     fn ty(&self) -> Ty {
         match self {
-            Node::Ident(_) => Ty::Infer,
+            Node::Ident(ty, _) => *ty,
             Node::Infix { ty, .. } => *ty,
             Node::Let { .. } => Ty::Unit,
             Node::Block(block) => block.ty(),
@@ -370,18 +371,6 @@ pub fn raise_expr<'input>(
         Expr::Literal(Literal::Boolean(span)) => Ok(Node::Lit(LitNode::Bool(span))),
         // TODO: mark as infer!
         Expr::Literal(Literal::Integer(span)) => Ok(Node::Lit(LitNode::Num(span, NumTy::I64))),
-        Expr::Ident(ident) => {
-            let str_ident = ident.as_str(lexer);
-            let (id, _) = scope.get_or_insert(&str_ident, || {
-                *nth += 1;
-                (*nth, Ty::Infer)
-            });
-
-            Ok(Node::Ident(Ident {
-                span: ident.span,
-                id,
-            }))
-        }
         Expr::Infix { span, lhs, op, rhs } => {
             let lhn = raise_expr(lexer, *lhs, scope, nth)?;
             let rhn = raise_expr(lexer, *rhs, scope, nth)?;
@@ -430,12 +419,17 @@ pub fn raise_expr<'input>(
                 }
             }
         }
-        Expr::LetExpr { span, ident, val } => {
+        Expr::LetExpr {
+            span: let_span,
+            ident,
+            val,
+            ..
+        } => {
             let val = raise_expr(lexer, *val, scope, nth)?;
-            let ident_str = lexer.span_str(ident.span);
+            let ident_str = ident.as_str(lexer);
 
             let ident = Ident {
-                span,
+                span: ident.span,
                 // TODO: this prevents shadowing with new type... fix that!
                 id: scope
                     .get_or_insert(ident_str, || {
@@ -446,10 +440,25 @@ pub fn raise_expr<'input>(
             };
 
             Ok(Node::Let {
-                span,
+                span: let_span,
                 ident,
                 val: Box::new(val),
             })
+        }
+        Expr::Ident(ident) => {
+            let ident_str = ident.as_str(lexer);
+            let (id, ty) = scope.get_or_insert(&ident_str, || {
+                *nth += 1;
+                (*nth, Ty::Infer)
+            });
+
+            Ok(Node::Ident(
+                ty,
+                Ident {
+                    span: ident.span,
+                    id,
+                },
+            ))
         }
         Expr::BlockExpr(block_expr) => {
             // TODO: clean this up
