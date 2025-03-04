@@ -14,6 +14,7 @@ lrpar = "0.13.9"
 [dependencies]
 cfgrammar = "0.13.9"
 cranelift = { version = "0.116.1", features = ["jit", "module", "native"] }
+edit-distance = "2.1.3"
 itertools = "0.14.0"
 lrlex = "0.13.9"
 lrpar = "0.13.9"

@@ -5,6 +5,7 @@ use std::{
     rc::Rc,
 };
 
+use edit_distance::edit_distance;
 use lrlex::DefaultLexerTypes;
 use lrpar::{NonStreamingLexer, Span};
 use miette::{miette, Error, Result};
@@ -464,7 +465,6 @@ pub fn raise_expr<'input>(
                 miette! {
                     labels = vec![
                         label!("variable" => ident.span()),
-                        label!("here" => assign_span),
                         label!("with this value" => val.span())
                     ],
                     "can't assign to variable that hasn't been declared"
@@ -500,6 +500,14 @@ pub fn raise_expr<'input>(
                     labels = vec![
                         label!("variable" => ident.span()),
                     ],
+                    help = if let Some(similar) = scope.get_close_keys(|k| {
+                        let dist = edit_distance(k, ident_str);
+                        if dist > 5 { None } else { Some(dist) }
+                    }, 10).next() {
+                        format!("did you mean `{similar}`?")
+                    } else {
+                        "check if you intended to use a variable that isn't in scope".to_string()
+                    },
                     "can't use variable before it has been declared"
                 }
             })?;

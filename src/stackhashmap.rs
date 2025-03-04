@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+use itertools::Itertools;
+
 #[derive(Debug)]
 pub struct StackHashMap<K, V> {
     data: Vec<HashMap<K, V>>,
@@ -54,6 +56,24 @@ impl<K: Eq + std::hash::Hash, V: Clone> StackHashMap<K, V> {
         f(self);
         self.pop_frame();
         assert_eq!(self.height(), prev_height);
+    }
+
+    /// construct iterator of all keys where the distance function returns some distance
+    ///
+    /// return none to filter out keys that are too far, and use max to terminate early--sorting requires collecting
+    pub fn get_close_keys(
+        &self,
+        distance_fn: impl Fn(&K) -> Option<usize>,
+        max: usize,
+    ) -> impl Iterator<Item = &K> {
+        self.data
+            .iter()
+            .flat_map(|hm| hm.keys())
+            .unique()
+            .filter_map(|k| distance_fn(k).map(|d| (d, k)))
+            .take(max)
+            .sorted_unstable_by_key(|(dist, _)| *dist)
+            .map(|(_, k)| k)
     }
 }
 
