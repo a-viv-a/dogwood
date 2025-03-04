@@ -495,16 +495,20 @@ pub fn raise_expr<'input>(
         }
         Expr::Ident(ident) => {
             let ident_str = ident.as_str(lexer);
-            let (id, ty) = scope.get_or_insert(&ident_str, || {
-                *nth += 1;
-                (*nth, Ty::Infer)
-            });
+            let (id, ty) = scope.get(&ident_str).ok_or_else(|| {
+                miette! {
+                    labels = vec![
+                        label!("variable" => ident.span()),
+                    ],
+                    "can't use variable before it has been declared"
+                }
+            })?;
 
             Ok(Node::Ident(
-                ty,
+                *ty,
                 Ident {
                     span: ident.span,
-                    id,
+                    id: *id,
                 },
             ))
         }
