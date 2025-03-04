@@ -39,6 +39,8 @@ Expr -> Result<Expr, ()>:
 Logic -> Result<Expr, ()>:
       Logic 'and' Arith { Ok(Expr::Infix{ span: $span, lhs: Box::new($1?), op: Op::And, rhs: Box::new($3?) }) }
     | Logic 'or' Arith { Ok(Expr::Infix{ span: $span, lhs: Box::new($1?), op: Op::Or, rhs: Box::new($3?) }) }
+    | Logic '==' Arith { Ok(Expr::Infix{ span: $span, lhs: Box::new($1?), op: Op::Eq, rhs: Box::new($3?) }) }
+    | Logic '!=' Arith { Ok(Expr::Infix{ span: $span, lhs: Box::new($1?), op: Op::Ne, rhs: Box::new($3?) }) }
     | Arith { $1 }
     ;
 
@@ -80,6 +82,9 @@ pub enum Op {
 	Pow,
 	Mod,
 
+	Eq,
+	Ne,
+
 	And,
 	Or
 }
@@ -93,6 +98,9 @@ impl std::fmt::Display for Op {
 			Self::Div => write!(f, "/"),
 			Self::Pow => write!(f, "^"),
 			Self::Mod => write!(f, "%"),
+
+			Self::Eq => write!(f, "=="),
+			Self::Ne => write!(f, "!="),
 
 			Self::And => write!(f, "and"),
 			Self::Or => write!(f, "or")

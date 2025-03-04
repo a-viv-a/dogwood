@@ -3,9 +3,6 @@
 true|false "BOOL"
 \_ "BLANK"
 
-\= '='
-let 'let'
-
 \+ "+"
 \- "-"
 \* "*"
@@ -19,6 +16,14 @@ let 'let'
 and "and"
 or "or"
 \! "!"
+
+\=\= '=='
+\!\= '!='
+\> '>'
+\< '<'
+
+\= '='
+let 'let'
 
 if "if"
 else "else"

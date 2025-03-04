@@ -4,7 +4,7 @@ use cranelift::codegen::{verify_function, Context};
 use cranelift::frontend::{FuncInstBuilder, FunctionBuilder, FunctionBuilderContext};
 use cranelift::jit::{JITBuilder, JITModule};
 use cranelift::module::{default_libcall_names, Linkage, Module};
-use cranelift::prelude::{settings, Block, EntityRef, Type, Value, Variable};
+use cranelift::prelude::{settings, Block, EntityRef, IntCC, Type, Value, Variable};
 use cranelift::{
     codegen::{
         ir::{types, AbiParam, Function, Signature, UserFuncName},
@@ -18,12 +18,45 @@ use miette::{miette, Context as MietteContext, IntoDiagnostic, Result};
 
 use crate::dogwood_y::{BlockExpr, CondExpr, Expr, Literal, Op};
 use crate::label;
-use crate::raise::{BlockNode, CondNode, Ident, LitNode, Node, Spanning, Tyable};
+use crate::raise::{BlockNode, CondNode, Ident, LitNode, Node, NumTy, Spanning, Ty, Tyable};
+
+pub enum FFICallable {
+    I64(Box<dyn Fn() -> i64>),
+    Bool(Box<dyn Fn() -> bool>),
+}
+
+impl FFICallable {
+    unsafe fn from_typed_cptr(cptr: *const u8, ty: Ty) -> Self {
+        match ty {
+            Ty::Num(num_ty) => match num_ty {
+                NumTy::I64 => {
+                    let f = mem::transmute::<_, extern "C" fn() -> i64>(cptr);
+                    Self::I64(Box::new(move || f()))
+                }
+                NumTy::Infer => todo!(),
+            },
+            Ty::Bool => {
+                let f = mem::transmute::<_, extern "C" fn() -> i8>(cptr);
+                Self::Bool(Box::new(move || {
+                    let v = f();
+                    assert!(v == 1 || v == 0);
+                    if v == 1 {
+                        true
+                    } else {
+                        false
+                    }
+                }))
+            }
+            Ty::Unit => todo!(),
+            Ty::Infer => todo!(),
+        }
+    }
+}
 
 pub fn node_to_function(
     lexer: &dyn NonStreamingLexer<DefaultLexerTypes<u32>>,
     node: Node,
-) -> Result<extern "C" fn() -> i64> {
+) -> Result<extern "C" fn() -> i8> {
     let mut flag_builder = settings::builder();
     let isa_builder = cranelift::native::builder().unwrap_or_else(|msg| {
         panic!("host machine is not supported: {msg}");
@@ -74,68 +107,10 @@ pub fn node_to_function(
 
     // WARN: I THINK THIS IS WRONG SINCE THE POINTERS RETVAL MIGHT BE SMALLER
     let code = module.get_finalized_function(func);
-    let ptr = unsafe { mem::transmute::<_, extern "C" fn() -> i64>(code) };
+    let ptr = unsafe { mem::transmute::<_, extern "C" fn() -> i8>(code) };
 
     Ok(ptr)
 }
-
-// // TODO: remove, type for no value...
-// const UNIT: Type = types::I8;
-
-// // TODO: delete this in favor of actual type annotation and inferrence system
-// trait Typed {
-//     fn get_type(&self) -> Type;
-// }
-
-// impl Typed for Op {
-//     fn get_type(&self) -> Type {
-//         match self {
-//             Op::Add | Op::Sub | Op::Mul | Op::Div | Op::Mod => types::I64,
-//             Op::And | Op::Or => types::I8,
-//             _ => todo!(),
-//         }
-//     }
-// }
-
-// impl Typed for Literal {
-//     fn get_type(&self) -> Type {
-//         match self {
-//             Literal::Integer(_) => types::I64,
-//             Literal::Boolean(_) => types::I8,
-//         }
-//     }
-// }
-
-// impl Typed for BlockExpr {
-//     fn get_type(&self) -> Type {
-//         self.retval.as_ref().map(|rv| rv.get_type()).unwrap_or(UNIT)
-//     }
-// }
-
-// impl Typed for CondExpr {
-//     fn get_type(&self) -> Type {
-//         // WARN: check for type cohesion!
-//         self.then_br.get_type()
-//     }
-// }
-
-// impl Typed for Expr {
-//     fn get_type(&self) -> Type {
-//         match self {
-//             Expr::Infix {
-//                 span: _,
-//                 lhs: _,
-//                 op,
-//                 rhs: _,
-//             } => op.get_type(),
-//             Expr::Literal(literal) => literal.get_type(),
-//             Expr::Ident(ident) => todo!(),
-//             // need type system or optional return...
-//             Expr::BlockExpr(block) => block.get_type(),
-//             Expr::CondExpr(cond_expr) => cond_expr.get_type(),
-//         }
-//     }
-// }
 
 trait AsCranelift {
     fn as_cranelift(
@@ -161,19 +136,45 @@ impl AsCranelift for Node {
                 rhs,
             } => {
                 macro_rules! lh_rh {
-                    ($fn:ident, $lh:expr, $rh:expr) => {{
+                    ($fn:ident) => {{
                         let lhv = lhs.as_cranelift(lexer, builder)?.unwrap();
                         let rhv = rhs.as_cranelift(lexer, builder)?.unwrap();
                         Ok(Some(builder.ins().$fn(lhv, rhv)))
                     }};
                 }
+                macro_rules! icmp {
+                    ($cond:expr) => {{
+                        let lhv = lhs.as_cranelift(lexer, builder)?.unwrap();
+                        let rhv = rhs.as_cranelift(lexer, builder)?.unwrap();
+                        Ok(Some(builder.ins().icmp($cond, lhv, rhv)))
+                    }};
+                }
                 match op {
-                    Op::Add => lh_rh!(iadd, lhs, rhs),
-                    Op::Sub => lh_rh!(isub, lhs, rhs),
-                    Op::Mul => lh_rh!(imul, lhs, rhs),
-                    Op::Div => lh_rh!(sdiv, lhs, rhs),
+                    Op::Add => lh_rh!(iadd),
+                    Op::Sub => lh_rh!(isub),
+                    Op::Mul => lh_rh!(imul),
+                    Op::Div => lh_rh!(sdiv),
                     // TODO: fix sign!
-                    Op::Mod => lh_rh!(srem, lhs, rhs),
+                    Op::Mod => lh_rh!(srem),
+
+                    Op::Eq => match lhs.ty() {
+                        Ty::Num(num_ty) => match num_ty {
+                            NumTy::Infer => todo!(),
+                            _ => icmp!(IntCC::Equal),
+                        },
+                        // need to handle any nonzero value...
+                        // Ty::Bool =>
+                        _ => todo!(),
+                    },
+                    Op::Ne => match lhs.ty() {
+                        Ty::Num(num_ty) => match num_ty {
+                            NumTy::Infer => todo!(),
+                            _ => icmp!(IntCC::NotEqual),
+                        },
+                        // need to handle any nonzero value...
+                        // Ty::Bool =>
+                        _ => todo!(),
+                    },
 
                     // sorta nasty, but short circuting...
                     Op::And => cond_expr_builder(
@@ -205,6 +206,7 @@ impl AsCranelift for Node {
                     // bools are represented by 0 or 1 value in an I8
                     // https://github.com/bytecodealliance/wasmtime/issues/3205
                     // https://github.com/bytecodealliance/wasmtime/pull/5031
+                    // HOWEVER any nonzero value is truthy...
                     .map(|b| Some(builder.ins().iconst(types::I8, if b { 1 } else { 0 }))),
             },
             Self::Ident(_, ident) => builder

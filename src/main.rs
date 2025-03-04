@@ -111,6 +111,7 @@ mod tests {
     macro_rules! restore_jit_type {
         ($v:expr, bool) => {{
             let v = $v;
+            dbg!(v);
             assert!(v == 1 || v == 0);
             if v == 1 {
                 true
@@ -217,6 +218,18 @@ mod tests {
             ac: i64  : "{ let a = 2; let b = 3 + a; b * a }" => 10,
             ba: bool : "{ let v = 10; let v = true; v }"     => true,
             ca: i64  : "{ let v = 10; v = 12; v }"           => 12,
+        }
+    }
+
+    #[cfg(test)]
+    mod comparisons {
+        use super::*;
+
+        eval_test! {
+            aa: bool : "1 == 1" => true,
+            ab: bool : "1 != 1" => false,
+            ac: bool : "2 == 1" => false,
+            ad: bool : "2 != 1" => true,
         }
     }
 }

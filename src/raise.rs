@@ -405,6 +405,25 @@ pub fn raise_expr<'input>(
                     }
                 }
 
+                Op::Eq | Op::Ne => {
+                    lhn.ty().unify(&rhn.ty()).ok_or_else(|| miette! {
+                            labels = vec![
+                                label!(lhn.ty() => lhn.span()),
+                                label!(rhn.ty() => rhn.span()),
+                            ],
+                            help = "infix equality operators requires both operands be the same type",
+                            "can't unify these types"
+                        })?;
+                        
+                    Ok(Node::Infix {
+                        span,
+                        ty: Ty::Bool,
+                        lhs: Box::new(lhn),
+                        op,
+                        rhs: Box::new(rhn),
+                    })
+                }
+
                 Op::And | Op::Or => {
                     if let Some(ty) = lhn.ty().unify(&rhn.ty()).and_then(|t| t.unify(&Ty::Bool)) {
                         Ok(Node::Infix {
