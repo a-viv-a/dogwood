@@ -238,7 +238,21 @@ impl AsCranelift for Node {
                             label!("var name" => ident.span()),
                             label!("value" => val.span()),
                         ],
-                        "failed to define"
+                        "failed to define: {}", e
+                    }
+                })?;
+                // TODO: don't mandate a return value
+                Ok(builder.ins().iconst(types::I8, 0))
+            }
+            Self::Assign { ident, val, .. } => {
+                let clir_val = val.as_cranelift(lexer, builder)?;
+                builder.try_def_var(ident.var(), clir_val).map_err(|e| {
+                    miette! {
+                        labels = vec![
+                            label!("var name" => ident.span()),
+                            label!("value" => val.span()),
+                        ],
+                        "failed to define: {}", e
                     }
                 })?;
                 // TODO: don't mandate a return value

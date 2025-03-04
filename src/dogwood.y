@@ -25,9 +25,14 @@ LetExpr -> Result<Expr, ()>:
 	  'let' Ident '=' Expr { Ok(Expr::LetExpr { span: $span, ident: $2?, val: Box::new($4?) }) }
 	;
 
+AssignExpr -> Result<Expr, ()>:
+	  Ident '=' Expr { Ok(Expr::AssignExpr { span: $span, ident: $1?, val: Box::new($3?) }) }
+	;
+
 Expr -> Result<Expr, ()>:
       CondExpr { Ok(Expr::CondExpr(Box::new($1?))) }
 	| LetExpr { $1 }
+	| AssignExpr { $1 }
     | Logic { $1 }
     ;
 
@@ -111,6 +116,11 @@ pub enum Expr {
 	BlockExpr(Box<BlockExpr>),
 	CondExpr(Box<CondExpr>),
 	LetExpr {
+		span: Span,
+		ident: Ident,
+		val: Box<Expr>,
+	},
+	AssignExpr {
 		span: Span,
 		ident: Ident,
 		val: Box<Expr>,
@@ -243,6 +253,7 @@ impl Expr {
 			Expr::Literal(literal) => literal.as_rpn(lexer),
 			Expr::Ident(ident) => ident.as_rpn(lexer),
 			Expr::LetExpr {span, ident, val} => format!("let {} = {}", ident.as_rpn(lexer), val.as_rpn(lexer)),
+			Expr::AssignExpr {span, ident, val} => format!("{} = {}", ident.as_rpn(lexer), val.as_rpn(lexer)),
 			Expr::BlockExpr(block) => block.as_rpn(lexer),
 			Expr::CondExpr(cond_expr) => cond_expr.as_rpn(lexer),
 		}

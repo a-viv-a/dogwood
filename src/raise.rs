@@ -152,6 +152,11 @@ pub enum Node {
         ident: Ident,
         val: Box<Node>,
     },
+    Assign {
+        span: Span,
+        ident: Ident,
+        val: Box<Node>,
+    },
     Block(BlockNode),
     Cond(CondNode),
     Lit(LitNode),
@@ -173,8 +178,7 @@ impl Spanning for Node {
     fn span(&self) -> Span {
         match self {
             Node::Ident(_, ident) => ident.span(),
-            Node::Infix { span, .. } => *span,
-            Node::Let { span, .. } => *span,
+            Node::Infix { span, .. } | Node::Let { span, .. } | Node::Assign { span, .. } => *span,
             Node::Block(block_node) => block_node.span(),
             Node::Cond(cond_node) => cond_node.span(),
             Node::Lit(lit_node) => lit_node.span(),
@@ -274,6 +278,9 @@ impl Node {
             Node::Let { ident, val, .. } => {
                 format!("let {} = {}", ident.as_rpn(lexer), val.as_rpn(lexer))
             }
+            Node::Assign { ident, val, .. } => {
+                format!("{} = {}", ident.as_rpn(lexer), val.as_rpn(lexer))
+            }
             Node::Cond(cond_node) => {
                 format!(
                     "if {} {} else {}",
@@ -314,7 +321,7 @@ impl Tyable for Node {
         match self {
             Node::Ident(ty, _) => *ty,
             Node::Infix { ty, .. } => *ty,
-            Node::Let { .. } => Ty::Unit,
+            Node::Let { .. } | Node::Assign { .. } => Ty::Unit,
             Node::Block(block) => block.ty(),
             Node::Cond(cond) => cond.ty(),
             Node::Lit(lit) => lit.ty(),
@@ -440,6 +447,48 @@ pub fn raise_expr<'input>(
 
             Ok(Node::Let {
                 span: let_span,
+                ident,
+                val: Box::new(val),
+            })
+        }
+        Expr::AssignExpr {
+            span: assign_span,
+            ident,
+            val,
+            ..
+        } => {
+            let val = raise_expr(lexer, *val, scope, nth)?;
+            let ident_str = ident.as_str(lexer);
+
+            let (id, ty) = scope.get(&ident_str).ok_or_else(|| {
+                miette! {
+                    labels = vec![
+                        label!("variable" => ident.span()),
+                        label!("here" => assign_span),
+                        label!("with this value" => val.span())
+                    ],
+                    "can't assign to variable that hasn't been declared"
+                }
+            })?;
+
+            ty.unify(&val.ty()).ok_or_else(|| {
+                miette! {
+                    labels = vec![
+                        label!(format!("expr of type {}", val.ty()) => val.span()),
+                        label!(format!("variable of type {ty}") => ident.span())
+                    ],
+                    help = format!("did you intend to shadow `{ident_str}` with type {}? use let instead of assign", val.ty()),
+                    "assignment value must unify with variable type"
+                }
+            })?;
+
+            let ident = Ident {
+                span: ident.span,
+                id: *id,
+            };
+
+            Ok(Node::Assign {
+                span: assign_span,
                 ident,
                 val: Box::new(val),
             })
