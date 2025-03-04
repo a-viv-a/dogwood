@@ -13,6 +13,7 @@ use itertools::{Either, Itertools};
 
 use crate::{
     dogwood_y::{Expr, Literal, Op},
+    label,
     stackhashmap::StackHashMap,
 };
 
@@ -115,6 +116,7 @@ pub trait Spanning {
 
 #[derive(Clone, Debug)]
 pub struct BlockNode {
+    span: Span,
     pub exprs: Vec<Node>,
     ty: Ty,
 }
@@ -122,6 +124,7 @@ pub struct BlockNode {
 // TODO: move inside node
 #[derive(Clone, Debug)]
 pub struct CondNode {
+    span: Span,
     pub cond: Box<Node>,
     pub then_node: BlockNode,
     pub else_node: Option<BlockNode>,
@@ -148,12 +151,36 @@ pub enum LitNode {
     Num(Span, NumTy),
 }
 
+impl Spanning for Node {
+    fn span(&self) -> Span {
+        match self {
+            Node::Ident(span, _) => *span,
+            Node::Infix { span, .. } => *span,
+            Node::Block(block_node) => block_node.span(),
+            Node::Cond(cond_node) => cond_node.span(),
+            Node::Lit(lit_node) => lit_node.span(),
+        }
+    }
+}
+
 impl Spanning for LitNode {
     fn span(&self) -> Span {
         match self {
             LitNode::Bool(span) => *span,
             LitNode::Num(span, _) => *span,
         }
+    }
+}
+
+impl Spanning for BlockNode {
+    fn span(&self) -> Span {
+        self.span
+    }
+}
+
+impl Spanning for CondNode {
+    fn span(&self) -> Span {
+        self.span
     }
 }
 
@@ -338,6 +365,11 @@ pub fn raise_expr<'input>(
                         })
                     } else {
                         Err(miette! {
+                            labels = vec![
+                                label!(lhn.ty() => lhn.span()),
+                                label!(rhn.ty() => rhn.span()),
+                            ],
+                            help = "infix numerical operators requires both operands be the same type",
                             "can't unify these types"
                         })
                     }
@@ -354,6 +386,11 @@ pub fn raise_expr<'input>(
                         })
                     } else {
                         Err(miette! {
+                            labels = vec![
+                                label!(lhn.ty() => lhn.span()),
+                                label!(rhn.ty() => rhn.span()),
+                            ],
+                            help = "infix logical operators requires both operands be the same type and unify with boolean",
                             "can't unify these types with bool"
                         })
                     }
@@ -383,7 +420,11 @@ pub fn raise_expr<'input>(
                 (exprs, Ty::Unit)
             };
 
-            Ok(Node::Block(BlockNode { exprs, ty }))
+            Ok(Node::Block(BlockNode {
+                span: block_expr.span,
+                exprs,
+                ty,
+            }))
         }
         Expr::CondExpr(cond_expr) => {
             let cond = Box::new(raise_expr(lexer, cond_expr.cond, scope, nth)?);
@@ -407,6 +448,7 @@ pub fn raise_expr<'input>(
             };
 
             Ok(Node::Cond(CondNode {
+                span: cond_expr.span,
                 cond,
                 then_node,
                 else_node,

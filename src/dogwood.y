@@ -7,14 +7,14 @@ ListOfStmts -> Result<Vec<Expr>, ()>:
 	;
 
 BlockExpr -> Result<BlockExpr, ()>:
-	  '{' Expr '}' { Ok(BlockExpr{ stmts: vec![], retval: Some($2?) }) }
-	| '{' ListOfStmts Expr '}' { Ok(BlockExpr{ stmts: $2?, retval: Some($3?) }) }
-	| '{' ListOfStmts '}' { Ok(BlockExpr{ stmts: $2?, retval: None }) }
+	  '{' Expr '}' { Ok(BlockExpr{ span: $span, stmts: vec![], retval: Some($2?) }) }
+	| '{' ListOfStmts Expr '}' { Ok(BlockExpr{ span: $span, stmts: $2?, retval: Some($3?) }) }
+	| '{' ListOfStmts '}' { Ok(BlockExpr{ span: $span, stmts: $2?, retval: None }) }
 	;
 
 CondExpr -> Result<CondExpr, ()>:
-	  'if' Expr BlockExpr 'else' BlockExpr { Ok(CondExpr { cond: $2?, then_br: $3?, else_br: Some($5?) }) }
-	| 'if' Expr BlockExpr { Ok(CondExpr { cond: $2?, then_br: $3?, else_br: None }) }
+	  'if' Expr BlockExpr 'else' BlockExpr { Ok(CondExpr { span: $span, cond: $2?, then_br: $3?, else_br: Some($5?) }) }
+	| 'if' Expr BlockExpr { Ok(CondExpr { span: $span, cond: $2?, then_br: $3?, else_br: None }) }
 	;
 
 Expr -> Result<Expr, ()>:
@@ -116,12 +116,14 @@ pub struct Ident {
 
 #[derive(Debug, Clone)]
 pub struct BlockExpr {
+	pub span: Span,
 	pub stmts: Vec<Expr>,
 	pub retval: Option<Expr>
 }
 
 #[derive(Debug, Clone)]
 pub struct CondExpr {
+	pub span: Span,
 	pub cond: Expr,
 	pub then_br: BlockExpr,
 	pub else_br: Option<BlockExpr>
