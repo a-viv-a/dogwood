@@ -36,7 +36,9 @@ pub fn node_to_function(
     let mut ctx = module.make_context();
 
     let mut sig = module.make_signature();
-    sig.returns.push(AbiParam::new(node.ty().repr().unwrap()));
+    if let Some(repr) = node.ty().repr() {
+        sig.returns.push(AbiParam::new(repr));
+    }
     // sig.params.push(AbiParam::new(types::I32));
 
     let mut fn_builder_ctx = FunctionBuilderContext::new();
@@ -54,7 +56,9 @@ pub fn node_to_function(
 
     builder.switch_to_block(block);
     let v = node.as_cranelift(lexer, &mut builder)?;
-    builder.ins().return_(&[v]);
+    if let Some(ret_val) = v {
+        builder.ins().return_(&[ret_val]);
+    }
 
     builder.finalize();
 
@@ -138,7 +142,7 @@ trait AsCranelift {
         &self,
         lexer: &dyn NonStreamingLexer<DefaultLexerTypes<u32>>,
         builder: &mut FunctionBuilder,
-    ) -> Result<Value>;
+    ) -> Result<Option<Value>>;
 }
 
 impl AsCranelift for Node {
@@ -146,7 +150,7 @@ impl AsCranelift for Node {
         &self,
         lexer: &dyn NonStreamingLexer<DefaultLexerTypes<u32>>,
         builder: &mut FunctionBuilder,
-    ) -> Result<Value> {
+    ) -> Result<Option<Value>> {
         // TODO: handle type correctly, actually choose the right asm instruction
         match self {
             Self::Infix {
@@ -158,9 +162,9 @@ impl AsCranelift for Node {
             } => {
                 macro_rules! lh_rh {
                     ($fn:ident, $lh:expr, $rh:expr) => {{
-                        let lhv = lhs.as_cranelift(lexer, builder)?;
-                        let rhv = rhs.as_cranelift(lexer, builder)?;
-                        Ok(builder.ins().$fn(lhv, rhv))
+                        let lhv = lhs.as_cranelift(lexer, builder)?.unwrap();
+                        let rhv = rhs.as_cranelift(lexer, builder)?.unwrap();
+                        Ok(Some(builder.ins().$fn(lhv, rhv)))
                     }};
                 }
                 match op {
@@ -175,18 +179,18 @@ impl AsCranelift for Node {
                     Op::And => cond_expr_builder(
                         lexer,
                         builder,
-                        |lexer, builder| lhs.as_cranelift(lexer, builder),
+                        |lexer, builder| lhs.as_cranelift(lexer, builder).map(|o| o.unwrap()),
                         |lexer, builder| rhs.as_cranelift(lexer, builder),
-                        |_, builder| Ok(builder.ins().iconst(types::I8, 0)),
-                        ty.repr().unwrap(),
+                        |_, builder| Ok(Some(builder.ins().iconst(types::I8, 0))),
+                        Some(ty.repr().unwrap()),
                     ),
                     Op::Or => cond_expr_builder(
                         lexer,
                         builder,
-                        |lexer, builder| lhs.as_cranelift(lexer, builder),
-                        |_, builder| Ok(builder.ins().iconst(types::I8, 1)),
+                        |lexer, builder| lhs.as_cranelift(lexer, builder).map(|o| o.unwrap()),
+                        |_, builder| Ok(Some(builder.ins().iconst(types::I8, 1))),
                         |lexer, builder| rhs.as_cranelift(lexer, builder),
-                        ty.repr().unwrap(),
+                        Some(ty.repr().unwrap()),
                     ),
                     _ => todo!(),
                 }
@@ -195,16 +199,17 @@ impl AsCranelift for Node {
                 LitNode::Num(span, ty) => litnode
                     // TODO: use method like "as_num_ty"
                     .as_i64(lexer)
-                    .map(|n| builder.ins().iconst(ty.repr().unwrap(), n)),
+                    .map(|n| Some(builder.ins().iconst(ty.repr().unwrap(), n))),
                 LitNode::Bool(_) => litnode
                     .as_bool(lexer)
                     // bools are represented by 0 or 1 value in an I8
                     // https://github.com/bytecodealliance/wasmtime/issues/3205
                     // https://github.com/bytecodealliance/wasmtime/pull/5031
-                    .map(|b| builder.ins().iconst(types::I8, if b { 1 } else { 0 })),
+                    .map(|b| Some(builder.ins().iconst(types::I8, if b { 1 } else { 0 }))),
             },
             Self::Ident(_, ident) => builder
                 .try_use_var(ident.var())
+                .map(|v| Some(v))
                 .into_diagnostic()
                 .wrap_err_with(|| {
                     miette! {
@@ -231,7 +236,7 @@ impl AsCranelift for Node {
                     )
                     .into_diagnostic()?;
 
-                let clir_val = val.as_cranelift(lexer, builder)?;
+                let clir_val = val.as_cranelift(lexer, builder)?.unwrap();
                 builder.try_def_var(ident.var(), clir_val).map_err(|e| {
                     miette! {
                         labels = vec![
@@ -241,11 +246,11 @@ impl AsCranelift for Node {
                         "failed to define: {}", e
                     }
                 })?;
-                // TODO: don't mandate a return value
-                Ok(builder.ins().iconst(types::I8, 0))
+
+                Ok(None)
             }
             Self::Assign { ident, val, .. } => {
-                let clir_val = val.as_cranelift(lexer, builder)?;
+                let clir_val = val.as_cranelift(lexer, builder)?.unwrap();
                 builder.try_def_var(ident.var(), clir_val).map_err(|e| {
                     miette! {
                         labels = vec![
@@ -255,22 +260,25 @@ impl AsCranelift for Node {
                         "failed to define: {}", e
                     }
                 })?;
-                // TODO: don't mandate a return value
-                Ok(builder.ins().iconst(types::I8, 0))
+
+                Ok(None)
             }
             Self::Block(block) => block.as_cranelift(lexer, builder),
             Self::Cond(cond) => cond_expr_builder(
                 lexer,
                 builder,
-                |lexer, builder| cond.cond.as_cranelift(lexer, builder),
+                |lexer, builder| Ok(cond.cond.as_cranelift(lexer, builder)?.unwrap()),
                 |lexer, builder| cond.then_node.as_cranelift(lexer, builder),
-                |lexer, builder| {
-                    cond.else_node
-                        .as_ref()
-                        .unwrap()
-                        .as_cranelift(lexer, builder)
+                // TODO: make elss insane
+                |lexer, builder| match cond
+                    .else_node
+                    .as_ref()
+                    .map(|e| e.as_cranelift(lexer, builder))
+                {
+                    Some(v) => v,
+                    None => Ok(None),
                 },
-                cond.ty().repr().unwrap(),
+                cond.ty().repr(),
             ),
         }
     }
@@ -281,21 +289,13 @@ impl AsCranelift for BlockNode {
         &self,
         lexer: &dyn NonStreamingLexer<DefaultLexerTypes<u32>>,
         builder: &mut FunctionBuilder,
-    ) -> Result<Value> {
+    ) -> Result<Option<Value>> {
         let mut retval = None;
         for expr in self.exprs.iter() {
-            retval = Some(expr.as_cranelift(lexer, builder)?);
+            retval = expr.as_cranelift(lexer, builder)?;
         }
 
-        // let retval = if let Some(retval) = &self.retval {
-        //     retval.as_cranelift(lexer, builder)?
-        // } else {
-        //     // unit type, this poses a correctness problem until typing exists...
-        //     builder.ins().iconst(types::I8, 0)
-        // };
-
-        // TODO: don't bother emitting this for cleaner clif?
-        Ok(retval.unwrap_or_else(|| builder.ins().iconst(types::I8, 0)))
+        Ok(retval)
     }
 }
 
@@ -392,23 +392,31 @@ impl AsCranelift for BlockNode {
 
 fn cond_expr_builder<
     A: FnOnce(&dyn NonStreamingLexer<DefaultLexerTypes<u32>>, &mut FunctionBuilder) -> Result<Value>,
-    B: FnOnce(&dyn NonStreamingLexer<DefaultLexerTypes<u32>>, &mut FunctionBuilder) -> Result<Value>,
-    C: FnOnce(&dyn NonStreamingLexer<DefaultLexerTypes<u32>>, &mut FunctionBuilder) -> Result<Value>,
+    B: FnOnce(
+        &dyn NonStreamingLexer<DefaultLexerTypes<u32>>,
+        &mut FunctionBuilder,
+    ) -> Result<Option<Value>>,
+    C: FnOnce(
+        &dyn NonStreamingLexer<DefaultLexerTypes<u32>>,
+        &mut FunctionBuilder,
+    ) -> Result<Option<Value>>,
 >(
     lexer: &dyn NonStreamingLexer<DefaultLexerTypes<u32>>,
     builder: &mut FunctionBuilder,
     cond_val: A,
     then_val: B,
     else_val: C,
-    retval: Type,
-) -> Result<Value> {
+    retval: Option<Type>,
+) -> Result<Option<Value>> {
     let cond_val = cond_val(lexer, builder)?;
 
     let then_block = builder.create_block();
     let else_block = builder.create_block();
     let merge_block = builder.create_block();
 
-    builder.append_block_param(merge_block, retval);
+    if let Some(retval) = retval {
+        builder.append_block_param(merge_block, retval);
+    }
 
     builder
         .ins()
@@ -417,18 +425,24 @@ fn cond_expr_builder<
     builder.switch_to_block(then_block);
     builder.seal_block(then_block);
     let then_val = then_val(lexer, builder)?;
-    builder.ins().jump(merge_block, &[then_val]);
+    builder.ins().jump(
+        merge_block,
+        &then_val.map(|v| vec![v]).unwrap_or(vec![])[..],
+    );
 
     builder.switch_to_block(else_block);
     builder.seal_block(else_block);
     // TODO: allow ommision, but don't return a type in that case? unclear
     let else_val = else_val(lexer, builder)?;
-    builder.ins().jump(merge_block, &[else_val]);
+    builder.ins().jump(
+        merge_block,
+        &else_val.map(|v| vec![v]).unwrap_or(vec![])[..],
+    );
 
     builder.switch_to_block(merge_block);
     builder.seal_block(merge_block);
 
-    Ok(builder.block_params(merge_block)[0])
+    Ok(retval.map(|_| builder.block_params(merge_block)[0]))
 }
 
 // impl ExprToCranelift for BlockExpr {

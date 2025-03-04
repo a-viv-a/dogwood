@@ -203,6 +203,7 @@ mod tests {
         eval_test! {
             aa: i64 : "if true {2} else {1}" => 2,
             ab: i64 : "if false { if true {0}else{0}; 5 } else {1}" => 1,
+            ba: i64 : "{let i = 5; if true {i = 6}; i}" => 6,
         }
     }
 
