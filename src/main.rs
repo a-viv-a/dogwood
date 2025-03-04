@@ -42,8 +42,9 @@ fn main() {
                     .map(|e| lex_parse_error_to_miette(&lexer, e))
                     .for_each(|m| eprintln!("{:?}", m.with_source_code(l.to_owned())));
                 if let Some(Ok(r)) = res {
-                    println!("{}", r.as_rpn(&lexer));
+                    println!("{}\n", r.as_rpn(&lexer));
                     match raise_expr(&lexer, r.clone(), &mut StackHashMap::new(), &mut 0)
+                        .inspect(|node| println!("{}\n", node.as_rpn(&lexer)))
                         .and_then(|n| node_to_function(&lexer, n))
                     {
                         Ok(f) => println!("Result: {}", f()),
@@ -161,7 +162,7 @@ mod tests {
             da: i64 : "3 ^ 2"          => 9,
             ea: i64 : "10 % 2"         => 0,
             eb: i64 : "10 % 7"         => 3,
-            // #[ignore]
+            #[ignore]
             ec: i64 : "-10 % 7"        => 3,
             #[ignore]
             ed: i64 : "10 % -7"        => -3,

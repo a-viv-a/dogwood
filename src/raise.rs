@@ -214,8 +214,19 @@ impl Node {
             Node::Infix { lhs, op, rhs, .. } => {
                 format!("{} {} {op}", lhs.as_rpn(lexer), rhs.as_rpn(lexer))
             }
-            Node::Block(block_node) => todo!(),
-            Node::Cond(cond_node) => todo!(),
+            Node::Block(block_node) => block_node.as_rpn(lexer),
+            Node::Cond(cond_node) => {
+                format!(
+                    "if {} {} else {}",
+                    cond_node.cond.as_rpn(lexer),
+                    cond_node.then_node.as_rpn(lexer),
+                    cond_node
+                        .else_node
+                        .as_ref()
+                        .map(|e| e.as_rpn(lexer))
+                        .unwrap_or_else(|| "()".to_string())
+                )
+            }
             Node::Ident(span, id) => {
                 format!("{id}`{}`", lexer.span_str(*span))
             }
@@ -224,6 +235,20 @@ impl Node {
             }
         };
         format!("({repr} :{})", self.ty())
+    }
+}
+
+impl BlockNode {
+    pub fn as_rpn(&self, lexer: &dyn NonStreamingLexer<DefaultLexerTypes<u32>>) -> String {
+        format!(
+            "{{\n{}{}\n}}",
+            self.exprs
+                .iter()
+                .map(|e| e.as_rpn(lexer))
+                .collect::<Vec<_>>()
+                .join(";\n"),
+            if self.ty() == Ty::Unit { ";" } else { "" }
+        )
     }
 }
 
