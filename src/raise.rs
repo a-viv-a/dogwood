@@ -458,6 +458,7 @@ pub fn raise_expr<'input>(
             val,
             ..
         } => {
+            // TODO: dedupe the error handling logic
             let val = raise_expr(lexer, *val, scope, nth)?;
             let ident_str = ident.as_str(lexer);
 
@@ -467,17 +468,35 @@ pub fn raise_expr<'input>(
                         label!("variable" => ident.span()),
                         label!("with this value" => val.span())
                     ],
+                    help = if let Some(similar) = scope.get_close_keys(|(k, _)| {
+                        let dist = edit_distance(k, ident_str);
+                        if dist > 5 { None } else { Some(dist) }
+                    }, 10).next() {
+                        format!("did you mean `{similar}`?")
+                    } else {
+                        "check if you intended to use a variable that isn't in scope".to_string()
+                    },
                     "can't assign to variable that hasn't been declared"
                 }
             })?;
 
             ty.unify(&val.ty()).ok_or_else(|| {
+                let base_help = format!("did you intend to shadow `{ident_str}` with type {}? use let instead of assign", val.ty());
                 miette! {
                     labels = vec![
                         label!(format!("expr of type {}", val.ty()) => val.span()),
                         label!(format!("variable of type {ty}") => ident.span())
                     ],
-                    help = format!("did you intend to shadow `{ident_str}` with type {}? use let instead of assign", val.ty()),
+                    help = if let Some(correct_type) = scope.get_close_keys(|(k, v)| {
+                        v.1.unify(&val.ty())?;
+                        
+                        let dist = edit_distance(k, ident_str);
+                        if dist > 10 { None } else { Some(dist) }
+                    }, 10).next() {
+                        format!("did you mean to write `{correct_type}` instead of `{ident_str}`? it has a type that is compatible with {}.\nif not, {base_help}", val.ty())
+                    } else {
+                        base_help
+                    },
                     "assignment value must unify with variable type"
                 }
             })?;
@@ -500,7 +519,7 @@ pub fn raise_expr<'input>(
                     labels = vec![
                         label!("variable" => ident.span()),
                     ],
-                    help = if let Some(similar) = scope.get_close_keys(|k| {
+                    help = if let Some(similar) = scope.get_close_keys(|(k, _)| {
                         let dist = edit_distance(k, ident_str);
                         if dist > 5 { None } else { Some(dist) }
                     }, 10).next() {

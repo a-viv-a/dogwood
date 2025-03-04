@@ -63,14 +63,14 @@ impl<K: Eq + std::hash::Hash, V: Clone> StackHashMap<K, V> {
     /// return none to filter out keys that are too far, and use max to terminate early--sorting requires collecting
     pub fn get_close_keys(
         &self,
-        distance_fn: impl Fn(&K) -> Option<usize>,
+        distance_fn: impl Fn((&K, &V)) -> Option<usize>,
         max: usize,
     ) -> impl Iterator<Item = &K> {
         self.data
             .iter()
-            .flat_map(|hm| hm.keys())
-            .unique()
-            .filter_map(|k| distance_fn(k).map(|d| (d, k)))
+            .flat_map(|hm| hm.iter())
+            .unique_by(|(k, v)| *k)
+            .filter_map(|kv| distance_fn(kv).map(|d| (d, kv.0)))
             .take(max)
             .sorted_unstable_by_key(|(dist, _)| *dist)
             .map(|(_, k)| k)
