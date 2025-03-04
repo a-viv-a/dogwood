@@ -3,6 +3,9 @@
 true|false "BOOL"
 \_ "BLANK"
 
+\= '='
+let 'let'
+
 \+ "+"
 \- "-"
 \* "*"

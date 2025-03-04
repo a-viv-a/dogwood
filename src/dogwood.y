@@ -17,8 +17,17 @@ CondExpr -> Result<CondExpr, ()>:
 	| 'if' Expr BlockExpr { Ok(CondExpr { span: $span, cond: $2?, then_br: $3?, else_br: None }) }
 	;
 
+Ident -> Result<Ident, ()>:
+	  'IDENT' { Ok(Ident { span: $span }) }
+	;
+
+LetExpr -> Result<Expr, ()>:
+	  'let' Ident '=' Expr { Ok(Expr::LetExpr { span: $span, ident: $2?, val: Box::new($4?) }) }
+	;
+
 Expr -> Result<Expr, ()>:
       CondExpr { Ok(Expr::CondExpr(Box::new($1?))) }
+	| LetExpr { $1 }
     | Logic { $1 }
     ;
 
@@ -51,7 +60,7 @@ Factor -> Result<Expr, ()>:
 	| BlockExpr { Ok(Expr::BlockExpr(Box::new($1?))) }
     | 'INT' { Ok(Expr::Literal(Literal::Integer($span))) }
 	| 'BOOL' { Ok(Expr::Literal(Literal::Boolean($span))) }
-	| 'IDENT' { Ok(Expr::Ident(Ident { span: $span })) }
+	| Ident { Ok(Expr::Ident($1?)) }
     ;
 %%
 
@@ -101,6 +110,11 @@ pub enum Expr {
 	Ident(Ident),
 	BlockExpr(Box<BlockExpr>),
 	CondExpr(Box<CondExpr>),
+	LetExpr {
+		span: Span,
+		ident: Ident,
+		val: Box<Expr>,
+	},
 }
 
 #[derive(Debug, Clone)]
@@ -220,6 +234,7 @@ impl Expr {
 			Expr::Ident(ident) => ident.span(),
 			Expr::BlockExpr(block) => todo!(),
 			Expr::CondExpr(cond_expr) => todo!(),
+			_ => todo!()
 		}
 	}
 	pub fn as_rpn(&self, lexer: DefaultLexerAlias) -> String {
@@ -227,6 +242,7 @@ impl Expr {
 			Expr::Infix {span: _, lhs, rhs, op} => format!("{} {} {op:?}", lhs.as_rpn(lexer), rhs.as_rpn(lexer)),
 			Expr::Literal(literal) => literal.as_rpn(lexer),
 			Expr::Ident(ident) => ident.as_rpn(lexer),
+			Expr::LetExpr {span, ident, val} => format!("let {} = {}", ident.as_rpn(lexer), val.as_rpn(lexer)),
 			Expr::BlockExpr(block) => block.as_rpn(lexer),
 			Expr::CondExpr(cond_expr) => cond_expr.as_rpn(lexer),
 		}

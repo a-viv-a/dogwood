@@ -131,14 +131,25 @@ pub struct CondNode {
 }
 
 #[derive(Clone, Debug)]
+pub struct Ident {
+    pub span: Span,
+    pub id: usize,
+}
+
+#[derive(Clone, Debug)]
 pub enum Node {
-    Ident(Span, usize),
+    Ident(Ident),
     Infix {
         span: Span,
         ty: Ty,
         lhs: Box<Node>,
         op: Op,
         rhs: Box<Node>,
+    },
+    Let {
+        span: Span,
+        ident: Ident,
+        val: Box<Node>,
     },
     Block(BlockNode),
     Cond(CondNode),
@@ -151,11 +162,18 @@ pub enum LitNode {
     Num(Span, NumTy),
 }
 
+impl Spanning for Ident {
+    fn span(&self) -> Span {
+        self.span
+    }
+}
+
 impl Spanning for Node {
     fn span(&self) -> Span {
         match self {
-            Node::Ident(span, _) => *span,
+            Node::Ident(ident) => ident.span(),
             Node::Infix { span, .. } => *span,
+            Node::Let { span, .. } => *span,
             Node::Block(block_node) => block_node.span(),
             Node::Cond(cond_node) => cond_node.span(),
             Node::Lit(lit_node) => lit_node.span(),
@@ -235,6 +253,16 @@ impl LitNode {
     }
 }
 
+impl Ident {
+    pub fn as_rpn(&self, lexer: &dyn NonStreamingLexer<DefaultLexerTypes<u32>>) -> String {
+        format!("{}`{}`", self.id, lexer.span_str(self.span))
+    }
+
+    pub fn var(&self) -> cranelift::prelude::Variable {
+        <cranelift::prelude::Variable as cranelift::prelude::EntityRef>::new(self.id)
+    }
+}
+
 impl Node {
     pub fn as_rpn(&self, lexer: &dyn NonStreamingLexer<DefaultLexerTypes<u32>>) -> String {
         let repr = match self {
@@ -242,6 +270,9 @@ impl Node {
                 format!("{} {} {op}", lhs.as_rpn(lexer), rhs.as_rpn(lexer))
             }
             Node::Block(block_node) => block_node.as_rpn(lexer),
+            Node::Let { ident, val, .. } => {
+                format!("let {} = {}", ident.as_rpn(lexer), val.as_rpn(lexer))
+            }
             Node::Cond(cond_node) => {
                 format!(
                     "if {} {} else {}",
@@ -254,9 +285,7 @@ impl Node {
                         .unwrap_or_else(|| "()".to_string())
                 )
             }
-            Node::Ident(span, id) => {
-                format!("{id}`{}`", lexer.span_str(*span))
-            }
+            Node::Ident(ident) => ident.as_rpn(lexer),
             Node::Lit(LitNode::Bool(span)) | Node::Lit(LitNode::Num(span, _)) => {
                 lexer.span_str(*span).to_string()
             }
@@ -282,8 +311,9 @@ impl BlockNode {
 impl Tyable for Node {
     fn ty(&self) -> Ty {
         match self {
-            Node::Ident(_, _) => Ty::Infer,
+            Node::Ident(_) => Ty::Infer,
             Node::Infix { ty, .. } => *ty,
+            Node::Let { .. } => Ty::Unit,
             Node::Block(block) => block.ty(),
             Node::Cond(cond) => cond.ty(),
             Node::Lit(lit) => lit.ty(),
@@ -347,7 +377,10 @@ pub fn raise_expr<'input>(
                 (*nth, Ty::Infer)
             });
 
-            Ok(Node::Ident(ident.span, id))
+            Ok(Node::Ident(Ident {
+                span: ident.span,
+                id,
+            }))
         }
         Expr::Infix { span, lhs, op, rhs } => {
             let lhn = raise_expr(lexer, *lhs, scope, nth)?;
@@ -396,6 +429,27 @@ pub fn raise_expr<'input>(
                     }
                 }
             }
+        }
+        Expr::LetExpr { span, ident, val } => {
+            let val = raise_expr(lexer, *val, scope, nth)?;
+            let ident_str = lexer.span_str(ident.span);
+
+            let ident = Ident {
+                span,
+                // TODO: this prevents shadowing with new type... fix that!
+                id: scope
+                    .get_or_insert(ident_str, || {
+                        *nth += 1;
+                        (*nth, val.ty())
+                    })
+                    .0,
+            };
+
+            Ok(Node::Let {
+                span,
+                ident,
+                val: Box::new(val),
+            })
         }
         Expr::BlockExpr(block_expr) => {
             // TODO: clean this up

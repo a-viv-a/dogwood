@@ -4,7 +4,7 @@ use cranelift::codegen::{verify_function, Context};
 use cranelift::frontend::{FuncInstBuilder, FunctionBuilder, FunctionBuilderContext};
 use cranelift::jit::{JITBuilder, JITModule};
 use cranelift::module::{default_libcall_names, Linkage, Module};
-use cranelift::prelude::{settings, Block, Type, Value};
+use cranelift::prelude::{settings, Block, EntityRef, Type, Value, Variable};
 use cranelift::{
     codegen::{
         ir::{types, AbiParam, Function, Signature, UserFuncName},
@@ -14,11 +14,11 @@ use cranelift::{
 };
 use lrlex::DefaultLexerTypes;
 use lrpar::NonStreamingLexer;
-use miette::{IntoDiagnostic, Result};
+use miette::{miette, Context as MietteContext, IntoDiagnostic, Result};
 
 use crate::dogwood_y::{BlockExpr, CondExpr, Expr, Literal, Op};
 use crate::label;
-use crate::raise::{BlockNode, CondNode, LitNode, Node, Tyable};
+use crate::raise::{BlockNode, CondNode, Ident, LitNode, Node, Spanning, Tyable};
 
 pub fn node_to_function(
     lexer: &dyn NonStreamingLexer<DefaultLexerTypes<u32>>,
@@ -203,7 +203,19 @@ impl AsCranelift for Node {
                     // https://github.com/bytecodealliance/wasmtime/pull/5031
                     .map(|b| builder.ins().iconst(types::I8, if b { 1 } else { 0 })),
             },
-            Self::Ident(ident, id) => todo!(),
+            Self::Ident(ident) => builder
+                .try_use_var(ident.var())
+                .into_diagnostic()
+                .wrap_err_with(|| {
+                    miette! {
+                        labels = vec![label!("here" => self.span())],
+                        "failed to use variable `{}`",
+                        lexer.span_str(self.span())
+                    }
+                }),
+            Self::Let { ident, val, .. } => {
+                todo!()
+            }
             Self::Block(block) => block.as_cranelift(lexer, builder),
             Self::Cond(cond) => cond_expr_builder(
                 lexer,
