@@ -26,6 +26,17 @@ pub enum NumTy {
     Infer,
 }
 
+impl NumTy {
+    pub fn repr(&self) -> Option<cranelift::prelude::Type> {
+        use cranelift::prelude::types;
+
+        match self {
+            Self::I64 => Some(types::I64),
+            Self::Infer => None,
+        }
+    }
+}
+
 impl Display for NumTy {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -54,6 +65,19 @@ pub enum Ty {
     /// The type of "nothing", an empty tuple
     Unit,
     Infer,
+}
+
+impl Ty {
+    pub fn repr(&self) -> Option<cranelift::prelude::Type> {
+        use cranelift::prelude::types;
+
+        match self {
+            Ty::Num(num_ty) => num_ty.repr(),
+            Ty::Bool => Some(types::I8),
+            Ty::Unit => None,
+            Ty::Infer => None,
+        }
+    }
 }
 
 impl Display for Ty {
@@ -85,23 +109,34 @@ pub trait Tyable {
     fn ty(&self) -> Ty;
 }
 
-#[derive(Clone, Debug)]
-pub struct BlockNode {
-    exprs: Vec<Node>,
-    ty: Ty,
+pub trait Spanning {
+    fn span(&self) -> Span;
 }
 
 #[derive(Clone, Debug)]
+pub struct BlockNode {
+    pub exprs: Vec<Node>,
+    ty: Ty,
+}
+
+// TODO: move inside node
+#[derive(Clone, Debug)]
 pub struct CondNode {
-    cond: Box<Node>,
-    then_node: BlockNode,
-    else_node: Option<BlockNode>,
+    pub cond: Box<Node>,
+    pub then_node: BlockNode,
+    pub else_node: Option<BlockNode>,
 }
 
 #[derive(Clone, Debug)]
 pub enum Node {
     Ident(Span, usize),
-    Infix(Span, Ty, Box<Node>, Op, Box<Node>),
+    Infix {
+        span: Span,
+        ty: Ty,
+        lhs: Box<Node>,
+        op: Op,
+        rhs: Box<Node>,
+    },
     Block(BlockNode),
     Cond(CondNode),
     Lit(LitNode),
@@ -113,22 +148,82 @@ pub enum LitNode {
     Num(Span, NumTy),
 }
 
+impl Spanning for LitNode {
+    fn span(&self) -> Span {
+        match self {
+            LitNode::Bool(span) => *span,
+            LitNode::Num(span, _) => *span,
+        }
+    }
+}
+
+macro_rules! parse_as {
+	($(($fn_name:ident, $literal:ident, $type:ty), )+) => {
+	    $(
+    		pub fn $fn_name(&self, lexer: &dyn NonStreamingLexer<DefaultLexerTypes<u32>>) -> miette::Result<$type> {
+    			use crate::label;
+    			use miette::{miette, IntoDiagnostic, MietteDiagnostic};
+    			match self {
+    			    // TODO: ensure num type is compatible!
+    				Self::$literal(span, ..) => lexer
+    					.span_str(*span)
+    					.parse::<$type>()
+    					.map_err(|e| miette!(
+    						labels = vec![
+    							label!(format!("tried to represent this value as a {}", stringify!($type)) => span)
+    						],
+    						"can't represent this {} family literal as {}: {e}",
+    						self.ty(),
+    						stringify!($type)
+    					)),
+    				lit => Err(miette!(
+    					labels = vec![
+    						label!(format!("this parsed as {}", lit.ty()) => self.span())
+    					],
+    					"incorrect type assumption during translation, attempted to represent {} literal `{}`",
+    					lit.ty(),
+    					stringify!($fn_name)
+    				))
+    			}
+    		}
+    	)+
+
+    	// pub fn as_num_ty(&self, lexer: &dyn NonStreamingLexer<DefaultLexerTypes<u32>>) -> miette::Result<i64> {
+    	//     match self {
+    	//         Self::Num(span, ty) => {
+    	//             match ty {
+    	//                 NumTy::I64 => self.as_i64(lexer)
+    	//             }
+    	//         }
+    	//     }
+    	// }
+    };
+}
+
+impl LitNode {
+    parse_as! {
+        (as_u64, Num, u64),
+        (as_i64, Num, i64),
+        (as_bool, Bool, bool),
+    }
+}
+
 impl Node {
     pub fn as_rpn(&self, lexer: &dyn NonStreamingLexer<DefaultLexerTypes<u32>>) -> String {
         let repr = match self {
-            Node::Infix(span, _, lh, op, rh) => {
-                format!("{} {} {op}", lh.as_rpn(lexer), rh.as_rpn(lexer))
+            Node::Infix { lhs, op, rhs, .. } => {
+                format!("{} {} {op}", lhs.as_rpn(lexer), rhs.as_rpn(lexer))
             }
             Node::Block(block_node) => todo!(),
             Node::Cond(cond_node) => todo!(),
-            Node::Ident(span, n) => {
-                format!("`{}`:{n}", lexer.span_str(*span))
+            Node::Ident(span, id) => {
+                format!("{id}`{}`", lexer.span_str(*span))
             }
             Node::Lit(LitNode::Bool(span)) | Node::Lit(LitNode::Num(span, _)) => {
                 lexer.span_str(*span).to_string()
             }
         };
-        format!("({} {repr})", self.ty())
+        format!("({repr} :{})", self.ty())
     }
 }
 
@@ -136,7 +231,7 @@ impl Tyable for Node {
     fn ty(&self) -> Ty {
         match self {
             Node::Ident(_, _) => Ty::Infer,
-            Node::Infix(_, ty, _, _, _) => *ty,
+            Node::Infix { ty, .. } => *ty,
             Node::Block(block) => block.ty(),
             Node::Cond(cond) => cond.ty(),
             Node::Lit(lit) => lit.ty(),
@@ -209,7 +304,13 @@ pub fn raise_expr<'input>(
             match op {
                 Op::Add | Op::Sub | Op::Mul | Op::Div | Op::Pow | Op::Mod => {
                     if let Some(ty) = lhn.ty().unify(&rhn.ty()) {
-                        Ok(Node::Infix(span, ty, Box::new(lhn), op, Box::new(rhn)))
+                        Ok(Node::Infix {
+                            span,
+                            ty,
+                            lhs: Box::new(lhn),
+                            op,
+                            rhs: Box::new(rhn),
+                        })
                     } else {
                         Err(miette! {
                             "can't unify these types"
@@ -219,7 +320,13 @@ pub fn raise_expr<'input>(
 
                 Op::And | Op::Or => {
                     if let Some(ty) = lhn.ty().unify(&rhn.ty()).and_then(|t| t.unify(&Ty::Bool)) {
-                        Ok(Node::Infix(span, ty, Box::new(lhn), op, Box::new(rhn)))
+                        Ok(Node::Infix {
+                            span,
+                            ty,
+                            lhs: Box::new(lhn),
+                            op,
+                            rhs: Box::new(rhn),
+                        })
                     } else {
                         Err(miette! {
                             "can't unify these types with bool"

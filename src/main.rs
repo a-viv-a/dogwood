@@ -11,7 +11,7 @@ use lrlex::lrlex_mod;
 use lrpar::lrpar_mod;
 use raise::raise_expr;
 use stackhashmap::StackHashMap;
-use translate::expr_to_function;
+use translate::node_to_function;
 
 use crate::error::lex_parse_error_to_miette;
 
@@ -43,13 +43,9 @@ fn main() {
                     .for_each(|m| eprintln!("{:?}", m.with_source_code(l.to_owned())));
                 if let Some(Ok(r)) = res {
                     println!("{}", r.as_rpn(&lexer));
-                    println!(
-                        "{}",
-                        raise_expr(&lexer, r.clone(), &mut StackHashMap::new(), &mut 0)
-                            .unwrap()
-                            .as_rpn(&lexer)
-                    );
-                    match expr_to_function(&lexer, r.clone()) {
+                    match raise_expr(&lexer, r.clone(), &mut StackHashMap::new(), &mut 0)
+                        .and_then(|n| node_to_function(&lexer, n))
+                    {
                         Ok(f) => println!("Result: {}", f()),
                         Err(err) => {
                             eprintln!("{:?}", err.with_source_code(l.to_owned()))
@@ -144,8 +140,10 @@ mod tests {
                 assert!(errs.is_empty());
 
                 let r = res.unwrap().unwrap();
-                println!("{}", r.as_rpn(&lexer));
-                let jit_val = expr_to_function(&lexer, r).map_err(|e| e.with_source_code(input)).unwrap()();
+                println!("expr: {}", r.as_rpn(&lexer));
+                let n = raise_expr(&lexer, r, &mut StackHashMap::new(), &mut 0).unwrap();
+                println!("node: {}\n", n.as_rpn(&lexer));
+                let jit_val = node_to_function(&lexer, n).map_err(|e| e.with_source_code(input)).unwrap()();
                 assert_eq!(restore_jit_type!(jit_val, $type), $output)
             }
         )+};
@@ -163,7 +161,7 @@ mod tests {
             da: i64 : "3 ^ 2"          => 9,
             ea: i64 : "10 % 2"         => 0,
             eb: i64 : "10 % 7"         => 3,
-            #[ignore]
+            // #[ignore]
             ec: i64 : "-10 % 7"        => 3,
             #[ignore]
             ed: i64 : "10 % -7"        => -3,
