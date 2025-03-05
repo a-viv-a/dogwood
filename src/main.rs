@@ -227,10 +227,12 @@ mod tests {
         use super::*;
 
         eval_test! {
-            aa: bool : "1 == 1" => true,
-            ab: bool : "1 != 1" => false,
-            ac: bool : "2 == 1" => false,
-            ad: bool : "2 != 1" => true,
+            aa: bool : "1 == 1"         => true,
+            ab: bool : "1 != 1"         => false,
+            ac: bool : "2 == 1"         => false,
+            ad: bool : "2 != 1"         => true,
+            ae: bool : "true != false"  => true,
+            ba: bool : "5 != 6 == true" => true,
         }
     }
 }

@@ -107,40 +107,54 @@ impl AsCranelift for Node {
                     ($fn:ident) => {{
                         let lhv = lhs.as_cranelift(lexer, builder)?.unwrap();
                         let rhv = rhs.as_cranelift(lexer, builder)?.unwrap();
-                        Ok(Some(builder.ins().$fn(lhv, rhv)))
+                        builder.ins().$fn(lhv, rhv)
                     }};
                 }
                 macro_rules! icmp {
                     ($cond:expr) => {{
                         let lhv = lhs.as_cranelift(lexer, builder)?.unwrap();
                         let rhv = rhs.as_cranelift(lexer, builder)?.unwrap();
-                        Ok(Some(builder.ins().icmp($cond, lhv, rhv)))
+                        builder.ins().icmp($cond, lhv, rhv)
+                    }};
+                }
+                macro_rules! canonical_bool {
+                    ($node:expr) => {{
+                        let v = $node.as_cranelift(lexer, builder)?.unwrap();
+                        builder.ins().icmp_imm(IntCC::NotEqual, v, 0)
                     }};
                 }
                 match op {
-                    Op::Add => lh_rh!(iadd),
-                    Op::Sub => lh_rh!(isub),
-                    Op::Mul => lh_rh!(imul),
-                    Op::Div => lh_rh!(sdiv),
+                    Op::Add => Ok(Some(lh_rh!(iadd))),
+                    Op::Sub => Ok(Some(lh_rh!(isub))),
+                    Op::Mul => Ok(Some(lh_rh!(imul))),
+                    Op::Div => Ok(Some(lh_rh!(sdiv))),
                     // TODO: fix sign!
-                    Op::Mod => lh_rh!(srem),
+                    Op::Mod => Ok(Some(lh_rh!(srem))),
 
                     Op::Eq => match lhs.ty() {
                         Ty::Num(num_ty) => match num_ty {
                             NumTy::Infer => todo!(),
-                            _ => icmp!(IntCC::Equal),
+                            _ => Ok(Some(icmp!(IntCC::Equal))),
                         },
                         // need to handle any nonzero value...
-                        // Ty::Bool =>
+                        Ty::Bool => {
+                            let lhb = canonical_bool!(lhs);
+                            let rhb = canonical_bool!(rhs);
+                            Ok(Some(builder.ins().icmp(IntCC::Equal, lhb, rhb)))
+                        }
                         _ => todo!(),
                     },
                     Op::Ne => match lhs.ty() {
                         Ty::Num(num_ty) => match num_ty {
                             NumTy::Infer => todo!(),
-                            _ => icmp!(IntCC::NotEqual),
+                            _ => Ok(Some(icmp!(IntCC::NotEqual))),
                         },
                         // need to handle any nonzero value...
-                        // Ty::Bool =>
+                        Ty::Bool => {
+                            let lhb = canonical_bool!(lhs);
+                            let rhb = canonical_bool!(rhs);
+                            Ok(Some(builder.ins().icmp(IntCC::NotEqual, lhb, rhb)))
+                        }
                         _ => todo!(),
                     },
 
