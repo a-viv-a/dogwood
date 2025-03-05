@@ -183,6 +183,17 @@ mod tests {
     }
 
     #[cfg(test)]
+    mod short_circuting {
+        use super::*;
+
+        eval_test! {
+            aa: i64 : "{ let i = 3; { i = 10 + i; true } or { i = 100 + i; true }; i }" => 13,
+            ab: i64 : "{ let i = 3; { i = 10 + i; false } or { i = 100 + i; true }; i }" => 113,
+            ac: i64 : "{ let i = 3; { i = 10 + i; false } and { i = 100 + i; true }; i }" => 13,
+        }
+    }
+
+    #[cfg(test)]
     mod order_of_operations {
         use super::*;
 
