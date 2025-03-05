@@ -158,6 +158,15 @@ impl AsCranelift for Node {
                         _ => todo!(),
                     },
 
+                    Op::Gt => match lhs.ty() {
+                        Ty::Num(NumTy::I64) => Ok(Some(icmp!(IntCC::SignedGreaterThan))),
+                        _ => todo!(),
+                    },
+                    Op::Lt => match lhs.ty() {
+                        Ty::Num(NumTy::I64) => Ok(Some(icmp!(IntCC::SignedLessThan))),
+                        _ => todo!(),
+                    },
+
                     // sorta nasty, but short circuting...
                     Op::And => cond_expr_builder(
                         lexer,

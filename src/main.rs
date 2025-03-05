@@ -233,6 +233,7 @@ mod tests {
             ad: bool : "2 != 1"         => true,
             ae: bool : "true != false"  => true,
             ba: bool : "5 != 6 == true" => true,
+            ca: bool : "5 > 6"          => false,
         }
     }
 }
