@@ -1,5 +1,6 @@
 #![allow(clippy::unnecessary_wraps)]
 
+mod dog_ffi;
 mod error;
 mod raise;
 mod stackhashmap;
@@ -47,7 +48,7 @@ fn main() {
                         .inspect(|node| println!("{}\n", node.as_rpn(&lexer)))
                         .and_then(|n| node_to_function(&lexer, n))
                     {
-                        Ok(f) => println!("Result: {}", f()),
+                        Ok(f) => println!("Result: {}", f.call()),
                         Err(err) => {
                             eprintln!("{:?}", err.with_source_code(l.to_owned()))
                         }
@@ -145,8 +146,8 @@ mod tests {
                 println!("expr: {}", r.as_rpn(&lexer));
                 let n = raise_expr(&lexer, r, &mut StackHashMap::new(), &mut 0).unwrap();
                 println!("node: {}\n", n.as_rpn(&lexer));
-                let jit_val = node_to_function(&lexer, n).map_err(|e| e.with_source_code(input)).unwrap()();
-                assert_eq!(restore_jit_type!(jit_val, $type), $output)
+                let jit_val: Option<$type> = node_to_function(&lexer, n).map_err(|e| e.with_source_code(input)).unwrap().call().try_into().ok();
+                assert_eq!(jit_val.unwrap(), $output)
             }
         )+};
     }

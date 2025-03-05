@@ -1,3 +1,4 @@
+use std::fmt::Display;
 use std::mem;
 
 use cranelift::codegen::{verify_function, Context};
@@ -16,47 +17,15 @@ use lrlex::DefaultLexerTypes;
 use lrpar::NonStreamingLexer;
 use miette::{miette, Context as MietteContext, IntoDiagnostic, Result};
 
+use crate::dog_ffi::DogF;
 use crate::dogwood_y::{BlockExpr, CondExpr, Expr, Literal, Op};
 use crate::label;
 use crate::raise::{BlockNode, CondNode, Ident, LitNode, Node, NumTy, Spanning, Ty, Tyable};
 
-pub enum FFICallable {
-    I64(Box<dyn Fn() -> i64>),
-    Bool(Box<dyn Fn() -> bool>),
-}
-
-impl FFICallable {
-    unsafe fn from_typed_cptr(cptr: *const u8, ty: Ty) -> Self {
-        match ty {
-            Ty::Num(num_ty) => match num_ty {
-                NumTy::I64 => {
-                    let f = mem::transmute::<_, extern "C" fn() -> i64>(cptr);
-                    Self::I64(Box::new(move || f()))
-                }
-                NumTy::Infer => todo!(),
-            },
-            Ty::Bool => {
-                let f = mem::transmute::<_, extern "C" fn() -> i8>(cptr);
-                Self::Bool(Box::new(move || {
-                    let v = f();
-                    assert!(v == 1 || v == 0);
-                    if v == 1 {
-                        true
-                    } else {
-                        false
-                    }
-                }))
-            }
-            Ty::Unit => todo!(),
-            Ty::Infer => todo!(),
-        }
-    }
-}
-
 pub fn node_to_function(
     lexer: &dyn NonStreamingLexer<DefaultLexerTypes<u32>>,
     node: Node,
-) -> Result<extern "C" fn() -> i8> {
+) -> Result<DogF> {
     let mut flag_builder = settings::builder();
     let isa_builder = cranelift::native::builder().unwrap_or_else(|msg| {
         panic!("host machine is not supported: {msg}");
@@ -107,9 +76,8 @@ pub fn node_to_function(
 
     // WARN: I THINK THIS IS WRONG SINCE THE POINTERS RETVAL MIGHT BE SMALLER
     let code = module.get_finalized_function(func);
-    let ptr = unsafe { mem::transmute::<_, extern "C" fn() -> i8>(code) };
 
-    Ok(ptr)
+    unsafe { Ok(DogF::from_typed_cptr(code, node.ty())) }
 }
 
 trait AsCranelift {
