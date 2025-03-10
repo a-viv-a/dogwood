@@ -76,7 +76,7 @@ Prefix -> POp:
 
 Factor -> Result<Expr, ()>:
 	  Prefix Factor { Ok(Expr::Prefix { span: $span, op: $1, expr: Box::new($2?) })  }
-    | '(' Arith ')' { $2 }
+    | '(' Expr ')' { $2 }
 	| BlockExpr { Ok(Expr::BlockExpr(Box::new($1?))) }
     | 'INT' { Ok(Expr::Literal(Literal::Integer($span))) }
 	| 'BOOL' { Ok(Expr::Literal(Literal::Boolean($span))) }
