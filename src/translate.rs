@@ -117,6 +117,7 @@ impl AsCranelift for Node {
                         builder.ins().icmp($cond, lhv, rhv)
                     }};
                 }
+                // IntCC returns canonical booleans already...
                 macro_rules! canonical_bool {
                     ($node:expr) => {{
                         let v = $node.as_cranelift(lexer, builder)?.unwrap();
@@ -136,11 +137,11 @@ impl AsCranelift for Node {
                             NumTy::Infer => todo!(),
                             _ => Ok(Some(icmp!(IntCC::Equal))),
                         },
-                        // need to handle any nonzero value...
                         Ty::Bool => {
-                            let lhb = canonical_bool!(lhs);
-                            let rhb = canonical_bool!(rhs);
-                            Ok(Some(builder.ins().icmp(IntCC::Equal, lhb, rhb)))
+                            // let lhb = canonical_bool!(lhs);
+                            // let rhb = canonical_bool!(rhs);
+                            // Ok(Some(builder.ins().icmp(IntCC::Equal, lhb, rhb)))
+                            Ok(Some(icmp!(IntCC::Equal)))
                         }
                         _ => todo!(),
                     },
@@ -149,11 +150,11 @@ impl AsCranelift for Node {
                             NumTy::Infer => todo!(),
                             _ => Ok(Some(icmp!(IntCC::NotEqual))),
                         },
-                        // need to handle any nonzero value...
                         Ty::Bool => {
-                            let lhb = canonical_bool!(lhs);
-                            let rhb = canonical_bool!(rhs);
-                            Ok(Some(builder.ins().icmp(IntCC::NotEqual, lhb, rhb)))
+                            // let lhb = canonical_bool!(lhs);
+                            // let rhb = canonical_bool!(rhs);
+                            // Ok(Some(builder.ins().icmp(IntCC::NotEqual, lhb, rhb)))
+                            Ok(Some(icmp!(IntCC::NotEqual)))
                         }
                         _ => todo!(),
                     },

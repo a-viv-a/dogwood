@@ -21,7 +21,8 @@ impl DogF {
                 let f = mem::transmute::<_, extern "C" fn() -> i8>(cptr);
                 Self::Bool(Box::new(move || {
                     let v = f();
-                    assert!(v == 1 || v == 0);
+                    // canonical bools are 1 or 0
+                    assert!(v == 1 || v == 0, "'{v}' isn't canonical");
                     if v == 1 {
                         true
                     } else {
