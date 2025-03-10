@@ -158,6 +158,11 @@ pub enum Node {
         ident: Ident,
         val: Box<Node>,
     },
+    While {
+        span: Span,
+        cond: Box<Node>,
+        then: BlockNode,
+    },
     Block(BlockNode),
     Cond(CondNode),
     Lit(LitNode),
@@ -179,7 +184,7 @@ impl Spanning for Node {
     fn span(&self) -> Span {
         match self {
             Node::Ident(_, ident) => ident.span(),
-            Node::Infix { span, .. } | Node::Let { span, .. } | Node::Assign { span, .. } => *span,
+            Node::Infix { span, .. } | Node::Let { span, .. } | Node::Assign { span, .. } | Node::While { span, .. } => *span,
             Node::Block(block_node) => block_node.span(),
             Node::Cond(cond_node) => cond_node.span(),
             Node::Lit(lit_node) => lit_node.span(),
@@ -282,6 +287,9 @@ impl Node {
             Node::Assign { ident, val, .. } => {
                 format!("{} = {}", ident.as_rpn(lexer), val.as_rpn(lexer))
             }
+            Node::While { cond, then, .. } => {
+                format!("while {} {}", cond.as_rpn(lexer), then.as_rpn(lexer))
+            }
             Node::Cond(cond_node) => {
                 format!(
                     "if {} {} else {}",
@@ -322,7 +330,7 @@ impl Tyable for Node {
         match self {
             Node::Ident(ty, _) => *ty,
             Node::Infix { ty, .. } => *ty,
-            Node::Let { .. } | Node::Assign { .. } => Ty::Unit,
+            Node::Let { .. } | Node::Assign { .. } | Node::While { .. } => Ty::Unit,
             Node::Block(block) => block.ty(),
             Node::Cond(cond) => cond.ty(),
             Node::Lit(lit) => lit.ty(),
@@ -634,6 +642,26 @@ pub fn raise_expr<'input>(
                 else_node,
             }))
         }
+        Expr::WhileExpr { span, cond, then } => {
+            let cond = Box::new(raise_expr(lexer, *cond, scope, nth)?);
+            assert!(cond.ty().unify(&Ty::Bool).is_some());
+            let then_node = must_be!(
+                Block,
+                raise_expr(
+                    lexer,
+                    Expr::BlockExpr(then),
+                    scope,
+                    nth,
+                )?
+            );
+
+            Ok(Node::While {
+                span,
+                cond,
+                then: then_node,
+            })
+        }
+
     }
 }
 

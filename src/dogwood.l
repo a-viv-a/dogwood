@@ -27,6 +27,7 @@ let 'let'
 
 if "if"
 else "else"
+while "while"
 \{ "{"
 \} "}"
 \; ";"

@@ -17,6 +17,10 @@ CondExpr -> Result<CondExpr, ()>:
 	| 'if' Expr BlockExpr { Ok(CondExpr { span: $span, cond: $2?, then_br: $3?, else_br: None }) }
 	;
 
+LoopExpr -> Result<Expr, ()>:
+	  'while' Expr BlockExpr { Ok(Expr::WhileExpr { span: $span, cond: Box::new($2?), then: Box::new($3?) }) }
+	;
+
 Ident -> Result<Ident, ()>:
 	  'IDENT' { Ok(Ident { span: $span }) }
 	;
@@ -31,6 +35,7 @@ AssignExpr -> Result<Expr, ()>:
 
 Expr -> Result<Expr, ()>:
       CondExpr { Ok(Expr::CondExpr(Box::new($1?))) }
+	| LoopExpr { $1 }
 	| LetExpr { $1 }
 	| AssignExpr { $1 }
     | Logic { $1 }
@@ -131,6 +136,11 @@ pub enum Expr {
 	Ident(Ident),
 	BlockExpr(Box<BlockExpr>),
 	CondExpr(Box<CondExpr>),
+	WhileExpr {
+		span: Span,
+		cond: Box<Expr>,
+		then: Box<BlockExpr>,
+	},
 	LetExpr {
 		span: Span,
 		ident: Ident,
@@ -269,6 +279,7 @@ impl Expr {
 			Expr::Literal(literal) => literal.as_rpn(lexer),
 			Expr::Ident(ident) => ident.as_rpn(lexer),
 			Expr::LetExpr {span, ident, val} => format!("let {} = {}", ident.as_rpn(lexer), val.as_rpn(lexer)),
+			Expr::WhileExpr {span, cond, then} => format!("while {} {}", cond.as_rpn(lexer), then.as_rpn(lexer)),
 			Expr::AssignExpr {span, ident, val} => format!("{} = {}", ident.as_rpn(lexer), val.as_rpn(lexer)),
 			Expr::BlockExpr(block) => block.as_rpn(lexer),
 			Expr::CondExpr(cond_expr) => cond_expr.as_rpn(lexer),
