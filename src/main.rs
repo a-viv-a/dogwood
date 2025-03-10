@@ -146,8 +146,13 @@ mod tests {
                 println!("expr: {}", r.as_rpn(&lexer));
                 let n = raise_expr(&lexer, r, &mut StackHashMap::new(), &mut 0).unwrap();
                 println!("node: {}\n", n.as_rpn(&lexer));
-                let jit_val: Option<$type> = node_to_function(&lexer, n).map_err(|e| e.with_source_code(input)).unwrap().call().try_into().ok();
-                assert_eq!(jit_val.unwrap(), $output)
+                let jit_val: $type = node_to_function(&lexer, n).map_err(|e| e.with_source_code(input))
+                    .expect("function")
+                    .call()
+                    .try_into()
+                    .ok()
+                    .expect(&format!("ffi returns {}", stringify!($type)));
+                assert_eq!(jit_val, $output)
             }
         )+};
     }
@@ -227,11 +232,12 @@ mod tests {
         use super::*;
 
         eval_test! {
-            aa: i64  : "{ let a = 2; a }"                    => 2,
-            ab: i64  : "{ let a = 2; let b = 3 + a; b }"     => 5,
-            ac: i64  : "{ let a = 2; let b = 3 + a; b * a }" => 10,
-            ba: bool : "{ let v = 10; let v = true; v }"     => true,
-            ca: i64  : "{ let v = 10; v = 12; v }"           => 12,
+            aa: i64  : "{ let a = 2; a }"                     => 2,
+            ab: i64  : "{ let a = 2; let b = 3 + a; b }"      => 5,
+            ac: i64  : "{ let a = 2; let b = 3 + a; b * a }"  => 10,
+            ba: bool : "{ let v = 10; let v = true; v }"      => true,
+            ca: i64  : "{ let v = 10; v = 12; v }"            => 12,
+            da: i64  : "{ let v = 10; { let v = false }; v }" => 10,
         }
     }
 

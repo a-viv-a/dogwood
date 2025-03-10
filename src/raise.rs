@@ -633,34 +633,38 @@ pub fn raise_expr<'input>(
         }
         Expr::BlockExpr(block_expr) => {
             // TODO: clean this up
-            let (exprs, ty) = if let Some(retval) = block_expr.retval {
-                let (exprs, errs) = raise_exprs(
-                    lexer,
-                    block_expr.stmts.into_iter().chain(iter::once(retval)),
-                    scope,
-                    nth,
-                );
-                if !errs.is_empty() {
-                    return Err(errs.into_iter().next().unwrap());
-                }
-                let ty = exprs.last().unwrap().ty();
-                (exprs, ty)
-            } else {
-                let (exprs, errs) = raise_exprs(lexer, block_expr.stmts.into_iter(), scope, nth);
+            scope.scope(|scope| {
+                let (exprs, ty) = if let Some(retval) = block_expr.retval {
+                    let (exprs, errs) = raise_exprs(
+                        lexer,
+                        block_expr.stmts.into_iter().chain(iter::once(retval)),
+                        scope,
+                        nth,
+                    );
+                    if !errs.is_empty() {
+                        return Err(errs.into_iter().next().unwrap());
+                    }
+                    let ty = exprs.last().unwrap().ty();
+                    (exprs, ty)
+                } else {
+                    let (exprs, errs) = raise_exprs(lexer, block_expr.stmts.into_iter(), scope, nth);
 
-                if !errs.is_empty() {
-                    return Err(errs.into_iter().next().unwrap());
-                }
-                (exprs, Ty::Unit)
-            };
+                    if !errs.is_empty() {
+                        return Err(errs.into_iter().next().unwrap());
+                    }
+                    (exprs, Ty::Unit)
+                };
 
-            Ok(Node::Block(BlockNode {
-                span: block_expr.span,
-                exprs,
-                ty,
-            }))
+                Ok(Node::Block(BlockNode {
+                    span: block_expr.span,
+                    exprs,
+                    ty,
+                }))
+            })
         }
         Expr::CondExpr(cond_expr) => {
+            // in the future, when there is a means by which to do assignment in a condition,
+            // create a new scope to contain it
             let cond = Box::new(raise_expr(lexer, cond_expr.cond, scope, nth)?);
             assert!(cond.ty().unify(&Ty::Bool).is_some());
             let then_node = must_be!(

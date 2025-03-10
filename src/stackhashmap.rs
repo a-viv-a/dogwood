@@ -50,12 +50,13 @@ impl<K: Eq + std::hash::Hash, V: Clone> StackHashMap<K, V> {
         return v;
     }
 
-    pub fn scope<F: FnOnce(&mut Self)>(&mut self, f: F) {
+    pub fn scope<F: FnOnce(&mut Self) -> R, R>(&mut self, f: F) -> R {
         let prev_height = self.height();
         self.push_frame();
-        f(self);
+        let r = f(self);
         self.pop_frame();
         assert_eq!(self.height(), prev_height);
+        r
     }
 
     /// construct iterator of all keys where the distance function returns some distance
