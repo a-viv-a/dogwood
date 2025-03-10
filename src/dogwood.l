@@ -13,6 +13,9 @@ true|false "BOOL"
 \( "("
 \) ")"
 
+\= '='
+let 'let'
+
 and "and"
 or "or"
 \! "!"
@@ -21,9 +24,6 @@ or "or"
 \!\= '!='
 \> '>'
 \< '<'
-
-\= '='
-let 'let'
 
 if "if"
 else "else"

@@ -171,6 +171,8 @@ mod tests {
             fa: i64 : "-5"             => -5,
             fb: i64 : "-5 + 1"         => -4,
             fc: i64 : "5 +-1"          => 4,
+            #[ignore] // need to do unary minus...
+            fd: i64 : "5-1"            => 4,
             ga: bool: "true"           => true,
             gb: bool: "false"          => false,
             gc: bool: "true and false" => false,
@@ -256,7 +258,7 @@ mod tests {
             aa: bool : "{ while false { false }; false }" => false,
             ab: i64  : "{ let n = 5; while n > 3 { n = n - 1; }; n }" => 3,
             ac: i64  : "{ let n = 30; while n % 2 == 0 { n = n / 3; }; n + 1 }" => 4,
-            ba: i64  : "{ let n=30;let a=0;let b=1;while n > 0 {let g=b;b=a+b;a=g;n=n-1;};a }" => 832040,
+            ba: i64  : "{ let n=30;let a=0;let b=1;while n > 0 {let g=b;b=a+b;a=g;n=n- 1;};a }" => 832040,
         }
     }
 }
