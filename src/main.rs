@@ -251,6 +251,20 @@ mod tests {
     }
 
     #[cfg(test)]
+    mod prefix {
+        use super::*;
+
+        eval_test! {
+            aa: i64  : "-1"             => -1,
+            ab: i64  : "3-1"            => 2,
+            ac: i64  : "3--1"           => 4,
+            ba: bool : "!true"          => false,
+            bb: bool : "!false"         => true,
+            ca: bool : "!(3 > 5)"       => true,
+        }
+    }
+
+    #[cfg(test)]
     mod loops {
         use super::*;
 

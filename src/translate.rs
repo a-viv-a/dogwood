@@ -18,9 +18,9 @@ use lrpar::NonStreamingLexer;
 use miette::{miette, Context as MietteContext, IntoDiagnostic, Result};
 
 use crate::dog_ffi::DogF;
-use crate::dogwood_y::{BlockExpr, CondExpr, Expr, Literal, Op};
+use crate::dogwood_y::{BlockExpr, CondExpr, Expr, Literal, Op, POp, Spanning};
 use crate::label;
-use crate::raise::{BlockNode, CondNode, Ident, LitNode, Node, NumTy, Spanning, Ty, Tyable};
+use crate::raise::{BlockNode, CondNode, Ident, LitNode, Node, NumTy, Ty, Tyable};
 
 pub fn node_to_function(
     lexer: &dyn NonStreamingLexer<DefaultLexerTypes<u32>>,
@@ -86,6 +86,14 @@ trait AsCranelift {
         lexer: &dyn NonStreamingLexer<DefaultLexerTypes<u32>>,
         builder: &mut FunctionBuilder,
     ) -> Result<Option<Value>>;
+}
+
+fn bool_value(builder: &mut FunctionBuilder, bool: bool) -> Value {
+    // bools are represented by 0 or 1 value in an I8
+    // https://github.com/bytecodealliance/wasmtime/issues/3205
+    // https://github.com/bytecodealliance/wasmtime/pull/5031
+    // HOWEVER any nonzero value is truthy...
+    builder.ins().iconst(types::I8, if bool { 1 } else { 0 })
 }
 
 impl AsCranelift for Node {
@@ -188,18 +196,22 @@ impl AsCranelift for Node {
                     _ => todo!(),
                 }
             }
+            Self::Prefix { span, ty, op, node } => match op {
+                POp::Neg => {
+                    let v = node.as_cranelift(lexer, builder)?.unwrap();
+                    Ok(Some(builder.ins().ineg(v)))
+                }
+                POp::Not => {
+                    let v = node.as_cranelift(lexer, builder)?.unwrap();
+                    Ok(Some(builder.ins().icmp_imm(IntCC::Equal, v, 0)))
+                }
+            },
             Self::Lit(litnode) => match litnode {
                 LitNode::Num(span, ty) => litnode
                     // TODO: use method like "as_num_ty"
                     .as_i64(lexer)
                     .map(|n| Some(builder.ins().iconst(ty.repr().unwrap(), n))),
-                LitNode::Bool(_) => litnode
-                    .as_bool(lexer)
-                    // bools are represented by 0 or 1 value in an I8
-                    // https://github.com/bytecodealliance/wasmtime/issues/3205
-                    // https://github.com/bytecodealliance/wasmtime/pull/5031
-                    // HOWEVER any nonzero value is truthy...
-                    .map(|b| Some(builder.ins().iconst(types::I8, if b { 1 } else { 0 }))),
+                LitNode::Bool(_) => litnode.as_bool(lexer).map(|b| Some(bool_value(builder, b))),
             },
             Self::Ident(_, ident) => builder
                 .try_use_var(ident.var())
@@ -209,7 +221,7 @@ impl AsCranelift for Node {
                     miette! {
                         labels = vec![label!("here" => self.span())],
                         "failed to use variable `{}`",
-                        lexer.span_str(self.span())
+                        lexer.span_str(*self.span())
                     }
                 }),
             Self::Let { ident, val, .. } => {

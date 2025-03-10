@@ -13,7 +13,7 @@ use miette::{miette, Error, Result};
 use itertools::{Either, Itertools};
 
 use crate::{
-    dogwood_y::{Expr, Literal, Op},
+    dogwood_y::{Expr, Literal, Op, POp, Spanning},
     label,
     stackhashmap::StackHashMap,
 };
@@ -43,7 +43,7 @@ impl Display for NumTy {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             NumTy::I64 => write!(f, "i64"),
-            NumTy::Infer => write!(f, "_"),
+            NumTy::Infer => write!(f, "infer"),
         }
     }
 }
@@ -107,12 +107,20 @@ impl Unify for Ty {
     }
 }
 
-pub trait Tyable {
-    fn ty(&self) -> Ty;
+fn unify_all<T>(of: &[&T], base: Option<Ty>, help: &str) -> Result<Ty>
+where
+    T: Spanning + Tyable {
+    of.iter()
+        .try_fold(base.unwrap_or(Ty::Infer), |a, b| a.ty().unify(&b.ty()).ok_or_else(|| miette! {
+            labels = of.iter().map(|e| label!(e.ty() => e.span())).collect::<Vec<_>>(),
+            help = help,
+            "can't unify these types with {}",
+            base.map(|t| format!("{t}")).unwrap_or("each other".to_string())
+        }))    
 }
 
-pub trait Spanning {
-    fn span(&self) -> Span;
+pub trait Tyable {
+    fn ty(&self) -> Ty;
 }
 
 #[derive(Clone, Debug)]
@@ -141,6 +149,12 @@ pub struct Ident {
 pub enum Node {
     // TODO: remove this Ty! its gross
     Ident(Ty, Ident),
+    Prefix {
+        span: Span,
+        ty: Ty,
+        op: POp,
+        node: Box<Node>,
+    },
     Infix {
         span: Span,
         ty: Ty,
@@ -175,16 +189,16 @@ pub enum LitNode {
 }
 
 impl Spanning for Ident {
-    fn span(&self) -> Span {
-        self.span
+    fn span(&self) -> &Span {
+        &self.span
     }
 }
 
 impl Spanning for Node {
-    fn span(&self) -> Span {
+    fn span(&self) -> &Span {
         match self {
             Node::Ident(_, ident) => ident.span(),
-            Node::Infix { span, .. } | Node::Let { span, .. } | Node::Assign { span, .. } | Node::While { span, .. } => *span,
+            Node::Infix { span, .. } | Node::Prefix { span, .. } | Node::Let { span, .. } | Node::Assign { span, .. } | Node::While { span, .. } => span,
             Node::Block(block_node) => block_node.span(),
             Node::Cond(cond_node) => cond_node.span(),
             Node::Lit(lit_node) => lit_node.span(),
@@ -193,23 +207,23 @@ impl Spanning for Node {
 }
 
 impl Spanning for LitNode {
-    fn span(&self) -> Span {
+    fn span(&self) -> &Span {
         match self {
-            LitNode::Bool(span) => *span,
-            LitNode::Num(span, _) => *span,
+            LitNode::Bool(span) => span,
+            LitNode::Num(span, _) => span,
         }
     }
 }
 
 impl Spanning for BlockNode {
-    fn span(&self) -> Span {
-        self.span
+    fn span(&self) -> &Span {
+        &self.span
     }
 }
 
 impl Spanning for CondNode {
-    fn span(&self) -> Span {
-        self.span
+    fn span(&self) -> &Span {
+        &self.span
     }
 }
 
@@ -218,7 +232,7 @@ macro_rules! parse_as {
 	    $(
     		pub fn $fn_name(&self, lexer: &dyn NonStreamingLexer<DefaultLexerTypes<u32>>) -> miette::Result<$type> {
     			use crate::label;
-    			use miette::{miette, IntoDiagnostic, MietteDiagnostic};
+    			use miette::miette;
     			match self {
     			    // TODO: ensure num type is compatible!
     				Self::$literal(span, ..) => lexer
@@ -280,6 +294,9 @@ impl Node {
             Node::Infix { lhs, op, rhs, .. } => {
                 format!("{} {} {op}", lhs.as_rpn(lexer), rhs.as_rpn(lexer))
             }
+            Node::Prefix { node, op, .. } => {
+                format!("{} {op}", node.as_rpn(lexer))
+            }
             Node::Block(block_node) => block_node.as_rpn(lexer),
             Node::Let { ident, val, .. } => {
                 format!("let {} = {}", ident.as_rpn(lexer), val.as_rpn(lexer))
@@ -325,11 +342,18 @@ impl BlockNode {
     }
 }
 
+impl Tyable for Ty {
+    fn ty(&self) -> Ty {
+        *self
+    }
+}
+
 impl Tyable for Node {
     fn ty(&self) -> Ty {
         match self {
             Node::Ident(ty, _) => *ty,
             Node::Infix { ty, .. } => *ty,
+            Node::Prefix { ty, .. } => *ty,
             Node::Let { .. } | Node::Assign { .. } | Node::While { .. } => Ty::Unit,
             Node::Block(block) => block.ty(),
             Node::Cond(cond) => cond.ty(),
@@ -471,6 +495,28 @@ pub fn raise_expr<'input>(
                         })
                     }
                 }
+            }
+        }
+        Expr::Prefix {
+            span,
+            op,
+            expr
+        } => {
+            match op {
+                POp::Neg => {
+                    let node = raise_expr(lexer, *expr, scope, nth)?;
+                    // TODO:: NumTy::InferSigned / unsigned?
+                    let ty = unify_all(&[&node], Some(Ty::Num(NumTy::Infer)), "prefix negation requires it's target unify with number")?;
+
+                    Ok(Node::Prefix { span, ty, op, node: Box::new(node) })
+                },
+                POp::Not => {
+                    // TODO: bitwise not...
+                    let node = raise_expr(lexer, *expr, scope, nth)?;
+                    let ty = unify_all(&[&node], Some(Ty::Bool), "prefix logical not requires it's target unify with boolean")?;
+
+                    Ok(Node::Prefix { span, ty, op, node: Box::new(node) })
+                },
             }
         }
         Expr::LetExpr {

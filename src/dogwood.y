@@ -69,8 +69,14 @@ Exponent -> Result<Expr, ()>:
 	| Factor { $1 }
 	;
 
+Prefix -> POp:
+	  '-' { POp::Neg }
+	| '!' { POp::Not }
+	;
+
 Factor -> Result<Expr, ()>:
-      '(' Arith ')' { $2 }
+	  Prefix Factor { Ok(Expr::Prefix { span: $span, op: $1, expr: Box::new($2?) })  }
+    | '(' Arith ')' { $2 }
 	| BlockExpr { Ok(Expr::BlockExpr(Box::new($1?))) }
     | 'INT' { Ok(Expr::Literal(Literal::Integer($span))) }
 	| 'BOOL' { Ok(Expr::Literal(Literal::Boolean($span))) }
@@ -99,6 +105,12 @@ pub enum Op {
 	Or
 }
 
+#[derive(Debug, Clone)]
+pub enum POp {
+	Neg,
+	Not
+}
+
 impl std::fmt::Display for Op {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -116,7 +128,16 @@ impl std::fmt::Display for Op {
 			Self::Lt => write!(f, "<"),
 
 			Self::And => write!(f, "and"),
-			Self::Or => write!(f, "or")
+			Self::Or => write!(f, "or"),
+        }
+    }
+}
+
+impl std::fmt::Display for POp {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+			Self::Neg => write!(f, "!"),
+			Self::Not => write!(f, "-"),
         }
     }
 }
@@ -126,6 +147,11 @@ type DefaultLexerAlias<'a, 'b> = &'a dyn lrpar::NonStreamingLexer<'b, lrlex::Def
 
 #[derive(Debug, Clone)]
 pub enum Expr {
+	Prefix {
+		span: Span,
+		op: POp,
+		expr: Box<Expr>,
+	},
 	Infix {
 		span: Span,
 		lhs: Box<Expr>,
@@ -224,14 +250,12 @@ macro_rules! parse_as {
 	}
 }
 
+pub trait Spanning {
+    fn span(&self) -> &Span;
+}
+
 impl Literal {
 	// should this be a trait?
-	pub fn span(&self) -> &Span {
-		match self {
-			Literal::Integer(span) => span,
-			Literal::Boolean(span) => span,
-		}
-	}
 	pub fn as_rpn(&self, lexer: DefaultLexerAlias) -> String {
 		format!("{}({})", self.family(), lexer.span_str(*self.span()))
 	}
@@ -250,10 +274,16 @@ impl Literal {
 	}
 }
 
-impl Ident {
-	pub fn span(&self) -> &Span {
-		&self.span
+impl Spanning for Literal {
+	fn span(&self) -> &Span {
+		match self {
+			Literal::Integer(span) => span,
+			Literal::Boolean(span) => span,
+		}
 	}
+}
+
+impl Ident {
 	pub fn as_str<'a, 'b>(&self, lexer: DefaultLexerAlias<'a, 'b>) -> &'b str {
 		lexer.span_str(self.span)
 	}
@@ -262,20 +292,17 @@ impl Ident {
 	}
 }
 
-impl Expr {
-	pub fn span(&self) -> &Span {
-		match self {
-			Expr::Infix {span, lhs: _, op: _, rhs: _} => span,
-			Expr::Literal(literal) => literal.span(),
-			Expr::Ident(ident) => ident.span(),
-			Expr::BlockExpr(block) => todo!(),
-			Expr::CondExpr(cond_expr) => todo!(),
-			_ => todo!()
-		}
+impl Spanning for Ident {
+	fn span(&self) -> &Span {
+		&self.span
 	}
+}
+
+impl Expr {
 	pub fn as_rpn(&self, lexer: DefaultLexerAlias) -> String {
 		match self {
 			Expr::Infix {span: _, lhs, rhs, op} => format!("{} {} {op:?}", lhs.as_rpn(lexer), rhs.as_rpn(lexer)),
+			Expr::Prefix { op, expr, .. } => format!("{} {op:?}", expr.as_rpn(lexer)),
 			Expr::Literal(literal) => literal.as_rpn(lexer),
 			Expr::Ident(ident) => ident.as_rpn(lexer),
 			Expr::LetExpr {span, ident, val} => format!("let {} = {}", ident.as_rpn(lexer), val.as_rpn(lexer)),
@@ -283,6 +310,19 @@ impl Expr {
 			Expr::AssignExpr {span, ident, val} => format!("{} = {}", ident.as_rpn(lexer), val.as_rpn(lexer)),
 			Expr::BlockExpr(block) => block.as_rpn(lexer),
 			Expr::CondExpr(cond_expr) => cond_expr.as_rpn(lexer),
+		}
+	}
+}
+
+impl Spanning for Expr {
+	fn span(&self) -> &Span {
+		match self {
+			Expr::Infix {span, lhs: _, op: _, rhs: _} => span,
+			Expr::Literal(literal) => literal.span(),
+			Expr::Ident(ident) => ident.span(),
+			Expr::BlockExpr(block) => todo!(),
+			Expr::CondExpr(cond_expr) => todo!(),
+			_ => todo!()
 		}
 	}
 }
